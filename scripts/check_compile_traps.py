@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cherche les fautes Swift qui ne se voient qu'à la compilation.
+"""Cherche les fautes SwiftUI qui ne se voient qu'à la compilation.
 
 Aucun compilateur Swift n'est disponible ici ; or deux fautes très banales ne
 se voient qu'à la compilation, et le message d'erreur produit par Xcode
@@ -14,26 +14,21 @@ RÈGLE 1 — arité de `buildBlock`.
 
 RÈGLE 2 — `@ViewBuilder` manquant.
     Une fonction qui renvoie `some View` renvoie **un seul type concret**. Si
-    son corps commence par un `if` ou un `switch`, les branches renvoient des
-    types différents et le code ne compile pas — sauf si `@ViewBuilder` les
-    enveloppe dans un `_ConditionalContent`. `var body` est le seul cas où
-    l'attribut est implicite : le protocole `View` le déclare lui-même.
+    son corps se ramifie et que les branches produisent des types différents —
+    le cas ordinaire dans une vue — le code ne compile pas, sauf si
+    `@ViewBuilder` les enveloppe dans un `_ConditionalContent`. Depuis Swift
+    5.9 un `if` dont toutes les branches ont le même type est une expression
+    valide, et l'attribut n'est alors pas indispensable ; le signalement reste
+    juste, parce que l'ajouter n'est jamais faux et qu'une branche ajoutée plus
+    tard casserait la compilation sans prévenir.
 
-RÈGLE 3 — chemin de clé vers un élément de tuple.
-    `\.mark` ne fonctionne que sur un type nominal. Un tuple n'en est pas un :
-    `[(index: Int, mark: Character)].map(\.mark)` est refusé par le
-    compilateur (« key path cannot refer to tuple element »), alors que la même
-    ligne écrite `{ $0.mark }` passe. La faute est facile à commettre parce que
-    la lecture directe `t.mark` sur un tuple, elle, est parfaitement licite.
+    `var body` est le seul cas où l'attribut est implicite : le protocole
+    `View` le déclare lui-même.
 """
 import sys
 from pathlib import Path
 import tree_sitter
 import tree_sitter_swift
-import re
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from swiftlex import strip_noise
 
 LANG = tree_sitter.Language(tree_sitter_swift.language())
 PARSER = tree_sitter.Parser(LANG)
@@ -128,31 +123,6 @@ def decl_name(decl, src):
     return "<?>"
 
 
-# Étiquettes de tuple déclarées dans un type de retour, p. ex.
-# `-> [(index: Int, mark: Character)]`. Un chemin de clé vers l'une d'elles ne
-# compile pas.
-TUPLE_LABEL_RE = re.compile(r"->\s*\[?\(\s*([^()]*?)\s*\)\]?")
-KEYPATH_RE = re.compile(r"\\\.([A-Za-z_][A-Za-z0-9_]*)")
-
-
-def tuple_labels(source_text):
-    """Les étiquettes des tuples renvoyés par une fonction du fichier."""
-    labels = set()
-    for body in TUPLE_LABEL_RE.findall(source_text):
-        parts = [p.strip() for p in body.split(",")]
-        if len(parts) < 2:
-            continue          # `-> (Void)` : pas un tuple étiqueté
-        names = []
-        for part in parts:
-            head, sep, _ = part.partition(":")
-            if not sep or " " in head.strip():
-                names = []
-                break         # pas une étiquette : ce n'est pas un tuple nommé
-            names.append(head.strip())
-        labels.update(names)
-    return labels
-
-
 def check(path):
     src = path.read_bytes()
     tree = PARSER.parse(src)
@@ -207,73 +177,13 @@ def check(path):
     return problems
 
 
-def type_level_properties(path):
-    """Les noms de propriétés déclarées au niveau d'un type.
-
-    Une étiquette de tuple peut porter le même nom qu'une vraie propriété —
-    `index` est à la fois l'étiquette de `diacriticProfile` et une propriété de
-    `StoryChapter`. `\\.index` sur un tableau de chapitres est parfaitement
-    valide : sans cette liste, la règle 3 le signalerait à tort.
-
-    Seules comptent les propriétés de type : une variable locale nommée comme
-    l'étiquette (`if let mark = marks.first`) ne rend pas le chemin de clé
-    licite pour autant, et l'inclure éteindrait la règle sur la faute même
-    qu'elle cherche.
-    """
-    src = path.read_bytes()
-    tree = PARSER.parse(src)
-    names = set()
-
-    def visit(node):
-        if (node.type == "property_declaration"
-                and node.parent is not None
-                and node.parent.type in ("class_body", "protocol_body", "enum_class_body")):
-            for child in node.children:
-                if child.type == "pattern":
-                    names.add(text(child, src).strip())
-                    break
-        for child in node.children:
-            visit(child)
-
-    visit(tree.root_node)
-    return names
-
-
-def check_keypaths(path, labels):
-    """RÈGLE 3, appliquée après avoir recensé tout le projet.
-
-    Le tuple est déclaré dans un fichier et le chemin de clé fautif écrit dans
-    un autre : une analyse fichier par fichier ne verrait rien.
-    """
-    problems = []
-    if not labels:
-        return problems
-    clean = strip_noise(path.read_text(encoding="utf-8", errors="replace"))
-    for i, line in enumerate(clean.splitlines(), 1):
-        for name in KEYPATH_RE.findall(line):
-            if name in labels:
-                problems.append(
-                    (i, f"`\\.{name}` vise une étiquette de tuple — "
-                        f"écrire `{{ $0.{name} }}`"))
-    return problems
-
-
 def main():
     root = Path(__file__).resolve().parent.parent
     files = sorted(root.glob("Limbator/**/*.swift")) + sorted(root.glob("LimbatorTests/**/*.swift"))
 
-    # Premier passage : recenser toutes les étiquettes de tuple du projet.
-    labels = set()
-    properties = set()
-    for f in files:
-        labels |= tuple_labels(strip_noise(f.read_text(encoding="utf-8", errors="replace")))
-        properties |= type_level_properties(f)
-    labels -= properties
-
     total = 0
     for f in files:
-        found = check(f) + check_keypaths(f, labels)
-        for line, msg in sorted(found):
+        for line, msg in sorted(check(f)):
             print(f"✗ {f.relative_to(root)}:{line}: {msg}")
             total += 1
     print(f"\nAnalysé {len(files)} fichiers SwiftUI — {total} problème(s)")

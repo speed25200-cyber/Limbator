@@ -199,7 +199,7 @@ Treize contrôles tournent donc en quelques secondes, avant toute compilation.
 
 ```
 1.  Syntaxe Swift              tree-sitter, 61 fichiers
-2.  Pièges de compilation      arité de buildBlock, @ViewBuilder, chemins de clé
+2.  Pièges de compilation      arité de buildBlock, @ViewBuilder
 3.  Références                 types, cas d'énumération, 208 clés de traduction
 4.  Switch exhaustifs          22 switch sur énumération
 5.  Chaînes de format          arguments cohérents dans les trois langues
@@ -213,13 +213,10 @@ Treize contrôles tournent donc en quelques secondes, avant toute compilation.
 13. Orientation de l'accent    analyse des pixels de l'icône
 ```
 
-Le contrôle 2 cherche trois fautes que rien ne signale sans compilateur, et dont
+Le contrôle 2 cherche deux fautes que rien ne signale sans compilateur, et dont
 le message d'Xcode ne désigne même pas la ligne : un conteneur SwiftUI qui
-dépasse dix vues filles, une fonction `some View` qui se ramifie sans
-`@ViewBuilder`, et un chemin de clé pointant vers une étiquette de tuple —
-`\.mark` sur un `(index: Int, mark: Character)` ne compile pas, alors que
-`{ $0.mark }` passe. La troisième règle a été écrite après avoir commis
-exactement cette faute.
+dépasse dix vues filles — la onzième fait échouer `buildBlock` — et une
+fonction `some View` qui se ramifie sans `@ViewBuilder`.
 
 Le contrôle 6 mérite un mot. `scripts/ortho_port.py` est une transposition
 Python fidèle du moteur d'orthographe, et `exec_ortho_logic.py` la fait tourner

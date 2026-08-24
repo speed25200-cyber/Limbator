@@ -10,13 +10,25 @@ struct SpeakerButton: View {
     @EnvironmentObject var tts: TTSService
     @State private var animating = false
 
+    /// Ce bouton-ci, et pas un autre haut-parleur de l'écran.
+    private var isActive: Bool { tts.isSpeaking(text, delivery: delivery) }
+
+    static func label(for delivery: TTSService.Delivery) -> String {
+        switch delivery {
+        case .natural:                return L.t("component.listen")
+        case .slow:                   return L.t("component.slow")
+        case .spelled, .syllables:    return L.t("component.spell")
+        case .wordByWord:             return L.t("ortho.word_by_word")
+        }
+    }
+
     var body: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             Task { await tts.speak(text, delivery: delivery) }
         } label: {
             ZStack {
-                if tts.isSpeaking {
+                if isActive {
                     ForEach(0..<3, id: \.self) { index in
                         Circle()
                             .stroke(tint.opacity(0.42), lineWidth: 2)
@@ -33,15 +45,17 @@ struct SpeakerButton: View {
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                     .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
                     .glow(tint, radius: 16)
-                Image(systemName: tts.isSpeaking ? "waveform" : "speaker.wave.2.fill")
+                Image(systemName: isActive ? "waveform" : "speaker.wave.2.fill")
                     .font(.system(size: size * 0.4, weight: .heavy))
                     .foregroundStyle(.white)
             }
             .frame(width: size, height: size)
         }
         .buttonStyle(.plain)
-        .onChange(of: tts.isSpeaking) { _, speaking in animating = speaking }
-        .accessibilityLabel(L.t("component.listen"))
+        .onChange(of: isActive) { _, speaking in animating = speaking }
+        // L'étiquette suit la manière de dire : un bouton d'épellation
+        // annoncé « Écouter » désoriente qui navigue au clavier vocal.
+        .accessibilityLabel(SpeakerButton.label(for: delivery))
     }
 }
 
@@ -98,17 +112,23 @@ struct ListenBar: View {
 
     private func control(icon: String, label: String, tint: Color,
                          delivery: TTSService.Delivery) -> some View {
-        Button {
+        // Quatre boutons, un seul parle. La lecture mot à mot dure plusieurs
+        // secondes : sans repère, on ne sait pas ce qu'on écoute ni s'il faut
+        // toucher encore.
+        let isActive = tts.isSpeaking(text, delivery: delivery)
+        return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             Task { await tts.speak(text, delivery: delivery) }
         } label: {
             VStack(spacing: 6) {
-                Image(systemName: icon)
+                Image(systemName: isActive ? "waveform" : icon)
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(isActive ? .white : tint)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(tint.opacity(0.16)))
-                    .overlay(Circle().stroke(tint.opacity(0.4), lineWidth: 1))
+                    .background(Circle().fill(tint.opacity(isActive ? 0.85 : 0.16)))
+                    .overlay(Circle().stroke(tint.opacity(isActive ? 1 : 0.4),
+                                             lineWidth: isActive ? 2 : 1))
+                    .animation(.easeInOut(duration: 0.2), value: isActive)
                 Text(label)
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.65))

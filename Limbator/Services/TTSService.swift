@@ -54,7 +54,7 @@ final class TTSService: NSObject, ObservableObject {
     }
 
     /// Manière de lire un texte. La dictée les utilise toutes.
-    enum Delivery {
+    enum Delivery: String {
         /// Débit naturel.
         case natural
         /// Ralenti, pour réécouter un passage difficile.
@@ -69,6 +69,13 @@ final class TTSService: NSObject, ObservableObject {
 
     @Published private(set) var currentEngine: Engine = .appleCompact
     @Published private(set) var isSpeaking: Bool = false
+    /// Ce qui est en train d'être dit, et de quelle façon.
+    ///
+    /// Sans cette précision, tous les haut-parleurs d'un écran s'animaient
+    /// ensemble : toucher « épeler » faisait vibrer aussi « réécouter » et
+    /// « ralentir », puisqu'ils lisent tous le même `isSpeaking` global. Le
+    /// retour visuel doit désigner le bouton qu'on a touché.
+    @Published private(set) var speakingRequest: String?
     @Published private(set) var isLoaded: Bool = false
     /// Ce que fait réellement le moteur, en clair — visible dans les réglages.
     /// Un utilisateur qui trouve la voix médiocre doit pouvoir savoir pourquoi.
@@ -206,7 +213,13 @@ final class TTSService: NSObject, ObservableObject {
         speechGeneration &+= 1
         let generation = speechGeneration
         isSpeaking = true
-        defer { if generation == speechGeneration { isSpeaking = false } }
+        speakingRequest = Self.requestKey(cleaned, delivery)
+        defer {
+            if generation == speechGeneration {
+                isSpeaking = false
+                speakingRequest = nil
+            }
+        }
 
         switch delivery {
         case .natural:
@@ -233,6 +246,18 @@ final class TTSService: NSObject, ObservableObject {
                 try? await Task.sleep(nanoseconds: 220_000_000)
             }
         }
+    }
+
+    /// L'identité d'une demande de lecture : le texte **et** la façon de le
+    /// dire. Deux boutons sur le même mot — écouter, épeler — restent ainsi
+    /// distincts.
+    static func requestKey(_ text: String, _ delivery: Delivery) -> String {
+        delivery.rawValue + "|" + text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Cette demande précise est-elle celle qu'on entend en ce moment ?
+    func isSpeaking(_ text: String, delivery: Delivery = .natural) -> Bool {
+        isSpeaking && speakingRequest == Self.requestKey(text, delivery)
     }
 
     /// Raccourci historique, conservé pour la lisibilité des vues.
@@ -367,6 +392,7 @@ final class TTSService: NSObject, ObservableObject {
 
     func cancel() {
         speechGeneration &+= 1
+        speakingRequest = nil
         synthesizer.stopSpeaking(at: .immediate)
         audioPlayer?.stop()
         audioPlayer = nil

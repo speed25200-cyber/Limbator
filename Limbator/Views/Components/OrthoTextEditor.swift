@@ -116,3 +116,107 @@ extension String {
         return (replaced, caret)
     }
 }
+
+/// La même idée, sur une ligne : le champ des exercices d'orthographe.
+///
+/// Un exercice à saisie libre porte sur **un mot**. C'est justement là que
+/// l'accent doit pouvoir s'insérer au milieu — corriger « eleve » demande
+/// d'écrire un accent en position 1 puis en position 3. `TextField` ne dit pas
+/// où est le curseur ; `UITextField`, si.
+struct OrthoTextField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var selection: NSRange
+    @Binding var isEditing: Bool
+    var placeholder: String = ""
+    var tint: Color = Theme.bleuFrance
+    var onSubmit: () -> Void = {}
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.delegate = context.coordinator
+        field.backgroundColor = .clear
+        field.textColor = .white
+        field.tintColor = UIColor(tint)
+        let base = UIFont.systemFont(ofSize: 26, weight: .bold)
+        field.font = base.fontDescriptor.withDesign(.serif)
+            .map { UIFont(descriptor: $0, size: 26) } ?? base
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.spellCheckingType = .no
+        field.smartQuotesType = .no
+        field.smartDashesType = .no
+        field.smartInsertDeleteType = .no
+        field.keyboardAppearance = .dark
+        field.returnKeyType = .done
+        field.addTarget(context.coordinator,
+                        action: #selector(Coordinator.editingChanged(_:)),
+                        for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        if field.text != text { field.text = text }
+        field.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.3)])
+
+        let length = (field.text as NSString? ?? "").length
+        let location = max(0, min(selection.location, length))
+        if let position = field.position(from: field.beginningOfDocument, offset: location),
+           let range = field.textRange(from: position, to: position),
+           field.selectedTextRange != range,
+           selection.length == 0 {
+            field.selectedTextRange = range
+        }
+
+        if isEditing && !field.isFirstResponder {
+            field.becomeFirstResponder()
+        } else if !isEditing && field.isFirstResponder {
+            field.resignFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        private let parent: OrthoTextField
+
+        init(_ parent: OrthoTextField) { self.parent = parent }
+
+        @objc func editingChanged(_ field: UITextField) {
+            parent.text = field.text ?? ""
+            parent.selection = caret(of: field)
+        }
+
+        func textFieldDidChangeSelection(_ field: UITextField) {
+            let range = caret(of: field)
+            guard parent.selection != range else { return }
+            parent.selection = range
+        }
+
+        func textFieldDidBeginEditing(_ field: UITextField) {
+            guard !parent.isEditing else { return }
+            parent.isEditing = true
+        }
+
+        func textFieldDidEndEditing(_ field: UITextField) {
+            guard parent.isEditing else { return }
+            parent.isEditing = false
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            parent.onSubmit()
+            return true
+        }
+
+        /// La position du curseur, ramenée en unités UTF-16.
+        private func caret(of field: UITextField) -> NSRange {
+            guard let selected = field.selectedTextRange else {
+                return NSRange(location: (field.text as NSString? ?? "").length, length: 0)
+            }
+            let location = field.offset(from: field.beginningOfDocument, to: selected.start)
+            let length = field.offset(from: selected.start, to: selected.end)
+            return NSRange(location: max(0, location), length: max(0, length))
+        }
+    }
+}

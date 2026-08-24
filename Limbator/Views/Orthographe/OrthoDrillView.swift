@@ -28,7 +28,10 @@ struct OrthoDrillView: View {
     /// Change à chaque nouvelle série : c'est lui qui relance le chargement et
     /// la génération après un « encore une série ».
     @State private var sessionId = UUID()
-    @FocusState private var fieldFocused: Bool
+    /// Le point d'insertion dans la saisie libre, en unités UTF-16 comme le
+    /// veut UIKit : c'est lui qui permet d'écrire un accent au milieu d'un mot.
+    @State private var selection = NSRange(location: 0, length: 0)
+    @State private var fieldFocused = false
 
     private var current: OrthoDrill? {
         drills.indices.contains(index) ? drills[index] : nil
@@ -278,14 +281,12 @@ struct OrthoDrillView: View {
 
     private func freeInputView(_ drill: OrthoDrill) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("", text: $typed,
-                      prompt: Text(drill.kind == .correction ? drill.answer.prefix(1) + "…" : "…")
-                        .foregroundStyle(.white.opacity(0.3)))
-                .focused($fieldFocused)
-                .font(Theme.Typography.ortho)
-                .foregroundStyle(.white)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+            OrthoTextField(text: $typed, selection: $selection, isEditing: $fieldFocused,
+                           placeholder: drill.kind == .correction
+                               ? String(drill.answer.prefix(1)) + "…" : "…",
+                           tint: module.color,
+                           onSubmit: { check(drill) })
+                .frame(height: 34)
                 .padding(16)
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.glass))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -296,8 +297,13 @@ struct OrthoDrillView: View {
                 .disabled(checked)
 
             if !checked {
+                // Au point d'insertion, pas à la fin : corriger « eleve »
+                // demande un accent en deuxième lettre puis en quatrième.
                 AccentKeyboardRow { character in
-                    typed.append(character)
+                    let result = typed.inserting(character, at: selection)
+                    typed = result.text
+                    selection = result.caret
+                    fieldFocused = true
                     UISelectionFeedbackGenerator().selectionChanged()
                 }
             }
@@ -425,6 +431,7 @@ struct OrthoDrillView: View {
                 index += 1
                 chosen = nil
                 typed = ""
+                selection = NSRange(location: 0, length: 0)
                 checked = false
             }
         }
@@ -516,6 +523,7 @@ struct OrthoDrillView: View {
             index = 0
             chosen = nil
             typed = ""
+            selection = NSRange(location: 0, length: 0)
             checked = false
             score = GameScore()
             finished = false

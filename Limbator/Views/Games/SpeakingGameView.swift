@@ -22,6 +22,10 @@ struct SpeakingGameView: View {
     @State private var lastScore: Double?
     @State private var score = GameScore()
     @State private var finished = false
+    /// Numéro de partie et drapeau de tirage — voir `GameSeed` et
+    /// `GameUnavailableView`.
+    @State private var attempt = 0
+    @State private var loaded = false
 
     private var current: GameRound? {
         rounds.indices.contains(index) ? rounds[index] : nil
@@ -34,6 +38,8 @@ struct SpeakingGameView: View {
                                 onReplay: restart, onDismiss: { dismiss() })
             } else if let round = current {
                 content(round)
+            } else if loaded {
+                GameUnavailableView(tint: GameKind.speaking.color, onRetry: restart) { dismiss() }
             } else {
                 ProgressView().tint(GameKind.speaking.color)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -50,10 +56,11 @@ struct SpeakingGameView: View {
     }
 
     private func load() {
-        guard rounds.isEmpty else { return }
-        let seed = UInt64(abs(Int(Date().timeIntervalSince1970) / 300))
+        guard !loaded else { return }
         rounds = ContentGenerator.shared.gameRounds(
-            kind: .speaking, level: progress.profile.level, count: roundCount, seed: seed)
+            kind: .speaking, level: progress.profile.level, count: roundCount,
+            seed: GameSeed.value(attempt: attempt))
+        loaded = true
     }
 
     private func content(_ round: GameRound) -> some View {
@@ -179,6 +186,11 @@ struct SpeakingGameView: View {
         if recorder.isRecording {
             guard let url = recorder.stop() else { return }
             let value = await tts.approximateSpeechScore(french: round.frenchTarget, recordingURL: url)
+            // L'enregistrement a servi : il disparaît. Rien ne justifie de
+            // laisser la voix de l'utilisateur dans le dossier temporaire une
+            // fois la note calculée — l'application promet que tout reste sur
+            // l'appareil, elle peut au moins ne rien garder d'inutile.
+            try? FileManager.default.removeItem(at: url)
             withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) { lastScore = value }
             score.register(correct: value >= 0.6, xp: 12)
             UINotificationFeedbackGenerator().notificationOccurred(value >= 0.6 ? .success : .warning)
@@ -210,6 +222,8 @@ struct SpeakingGameView: View {
             score = GameScore()
             finished = false
         }
+        attempt += 1
+        loaded = false
         load()
     }
 }

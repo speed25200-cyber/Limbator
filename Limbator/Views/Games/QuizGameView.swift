@@ -22,9 +22,7 @@ struct QuizGameView: View {
     @State private var score = GameScore()
     @State private var finished = false
     @State private var confetti = 0
-    /// Incrémenté à chaque « Rejouer ». Il entre dans la graine de tirage :
-    /// sans lui, rejouer dans les cinq minutes redonnait mot pour mot la même
-    /// série, ce qui vide le bouton de son sens.
+    /// Incrémenté à chaque « Rejouer » — voir `GameSeed`.
     @State private var attempt = 0
     /// Distingue « pas encore chargé » de « chargé, mais rien d'exploitable ».
     /// Sans cette distinction, un tirage vide était indiscernable d'un tirage
@@ -49,7 +47,7 @@ struct QuizGameView: View {
             } else if let round = current {
                 play(round)
             } else if loaded {
-                unavailable
+                GameUnavailableView(tint: kind.color, onRetry: restart) { dismiss() }
             } else {
                 loading
             }
@@ -68,10 +66,7 @@ struct QuizGameView: View {
 
     private func load() {
         guard !loaded else { return }
-        // Le quart d'heure sert de graine stable pour une même partie ; le
-        // numéro de tentative la fait changer dès qu'on rejoue.
-        let bucket = UInt64(abs(Int(Date().timeIntervalSince1970) / 900))
-        let seed = bucket &* 31 &+ UInt64(attempt)
+        let seed = GameSeed.value(attempt: attempt)
         rounds = ContentGenerator.shared
             .gameRounds(kind: kind, level: progress.profile.level, count: roundCount, seed: seed)
             .filter(\.isQuizPlayable)
@@ -90,25 +85,6 @@ struct QuizGameView: View {
             guard !Task.isCancelled else { return }
             await tts.speak(target)
         }
-    }
-
-    /// Aucune manche exploitable n'a pu être construite. Sans cet écran, la
-    /// vue restait sur son sablier indéfiniment — `onAppear` ne repasse pas —
-    /// et le jeu paraissait cassé sans rien dire.
-    private var unavailable: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "questionmark.square.dashed")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(kind.color.opacity(0.8))
-            Text(L.t("game.unavailable"))
-                .font(Theme.Typography.body)
-                .foregroundStyle(.white.opacity(0.75))
-                .multilineTextAlignment(.center)
-            GhostButton(title: L.t("game.retry"), action: restart)
-            GhostButton(title: L.t("game.finish")) { dismiss() }
-        }
-        .padding(.horizontal, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var loading: some View {

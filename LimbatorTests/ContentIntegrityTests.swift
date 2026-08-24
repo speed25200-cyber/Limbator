@@ -476,6 +476,32 @@ final class ContentIntegrityTests: XCTestCase {
         }
     }
 
+    func testGameSeedIsStableWithinAGameAndChangesOnReplay() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        // Stable pendant une partie : deux appels au même instant, même
+        // tentative, doivent donner la même série — sinon le moindre redessin
+        // rebattrait les cartes sous les doigts.
+        XCTAssertEqual(GameSeed.value(attempt: 0, now: now),
+                       GameSeed.value(attempt: 0, now: now))
+        // Et différente dès qu'on rejoue : c'était le défaut de la première
+        // version, qui redonnait mot pour mot la même série.
+        XCTAssertNotEqual(GameSeed.value(attempt: 0, now: now),
+                          GameSeed.value(attempt: 1, now: now))
+        // Stable aussi à quelques secondes d'intervalle : le seau est large.
+        XCTAssertEqual(GameSeed.value(attempt: 2, now: now),
+                       GameSeed.value(attempt: 2, now: now.addingTimeInterval(30)))
+    }
+
+    func testReplayActuallyProducesADifferentSeries() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = ContentGenerator.shared.gameRounds(
+            kind: .match, level: .b1, count: 8, seed: GameSeed.value(attempt: 0, now: now))
+        let second = ContentGenerator.shared.gameRounds(
+            kind: .match, level: .b1, count: 8, seed: GameSeed.value(attempt: 1, now: now))
+        XCTAssertNotEqual(first.map(\.frenchTarget), second.map(\.frenchTarget),
+                          "rejouer redonne exactement la même série")
+    }
+
     func testAccentVariantsDifferFromTheTruth() {
         for card in GameSeeds.accentedPool.prefix(30) {
             for variant in GameSeeds.accentVariants(of: card.french) {

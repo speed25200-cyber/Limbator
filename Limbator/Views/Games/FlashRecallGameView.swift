@@ -22,6 +22,10 @@ struct FlashRecallGameView: View {
     @State private var finished = false
     @State private var started = false
     @State private var ticker: Task<Void, Never>?
+    /// Numéro de partie et drapeau de tirage — voir `GameSeed` et
+    /// `GameUnavailableView`.
+    @State private var attempt = 0
+    @State private var loaded = false
 
     private var current: VocabCard? {
         cards.indices.contains(index) ? cards[index] : nil
@@ -36,6 +40,8 @@ struct FlashRecallGameView: View {
                 startScreen
             } else if let card = current {
                 play(card)
+            } else if loaded {
+                GameUnavailableView(tint: GameKind.flashRecall.color, onRetry: restart) { dismiss() }
             } else {
                 ProgressView().tint(GameKind.flashRecall.color)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -52,9 +58,10 @@ struct FlashRecallGameView: View {
     }
 
     private func load() {
-        guard cards.isEmpty else { return }
-        let seed = UInt64(abs(Int(Date().timeIntervalSince1970) / 300))
-        cards = GameSeeds.sample(GameSeeds.vocabPool, count: roundCount, seed: seed) { $0.french }
+        guard !loaded else { return }
+        cards = GameSeeds.sample(GameSeeds.vocabPool, count: roundCount,
+                                 seed: GameSeed.value(attempt: attempt)) { $0.french }
+        loaded = true
     }
 
     private var startScreen: some View {
@@ -216,6 +223,8 @@ struct FlashRecallGameView: View {
             finished = false
             started = false
         }
+        attempt += 1
+        loaded = false
         load()
     }
 }

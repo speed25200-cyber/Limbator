@@ -20,6 +20,10 @@ struct WordPuzzleGameView: View {
     @State private var checked = false
     @State private var score = GameScore()
     @State private var finished = false
+    /// Numéro de partie et drapeau de tirage — voir `GameSeed` et
+    /// `GameUnavailableView`.
+    @State private var attempt = 0
+    @State private var loaded = false
 
     /// Un mot du puzzle. L'identité est portée par un jeton, pas par la chaîne :
     /// une phrase peut contenir deux fois « la », et deux vues identifiées par
@@ -42,6 +46,8 @@ struct WordPuzzleGameView: View {
                                 onReplay: restart, onDismiss: { dismiss() })
             } else if let round = current {
                 play(round)
+            } else if loaded {
+                GameUnavailableView(tint: GameKind.wordPuzzle.color, onRetry: restart) { dismiss() }
             } else {
                 ProgressView().tint(GameKind.wordPuzzle.color)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,10 +61,11 @@ struct WordPuzzleGameView: View {
     }
 
     private func load() {
-        guard rounds.isEmpty else { return }
-        let seed = UInt64(abs(Int(Date().timeIntervalSince1970) / 300))
+        guard !loaded else { return }
         rounds = ContentGenerator.shared.gameRounds(
-            kind: .wordPuzzle, level: progress.profile.level, count: roundCount, seed: seed)
+            kind: .wordPuzzle, level: progress.profile.level, count: roundCount,
+            seed: GameSeed.value(attempt: attempt))
+        loaded = true
         prepare()
     }
 
@@ -234,6 +241,8 @@ struct WordPuzzleGameView: View {
             score = GameScore()
             finished = false
         }
+        attempt += 1
+        loaded = false
         load()
     }
 }

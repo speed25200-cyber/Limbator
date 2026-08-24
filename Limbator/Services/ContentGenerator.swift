@@ -159,9 +159,12 @@ final class ContentGenerator: ObservableObject {
     /// contrôles de plausibilité. Sinon, on renvoie une dictée vérifiée.
     func dictation(targeting rule: OrthoRule, native: NativeLanguage,
                    level: ProficiencyLevel) async -> DictationItem {
+        // Chaîne de replis totale : aucune branche ne peut rendre nil, et
+        // aucune n'indexe un tableau.
         let fallback = DictationBank.dictations(targeting: rule.id).first
             ?? DictationBank.dictations(upTo: level).first
-            ?? DictationBank.a1[0]
+            ?? DictationBank.all.first
+            ?? DictationItem(text: "Bonjour.", translation: "Bună ziua.", level: .a1)
 
         let examples = rule.examples.map(\.correct).joined(separator: " · ")
         let system = """

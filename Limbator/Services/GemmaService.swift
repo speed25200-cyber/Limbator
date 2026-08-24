@@ -104,8 +104,12 @@ final class GemmaService: ObservableObject {
     var modelDirectory: URL { directory(for: variant) }
 
     func directory(for variant: Variant) -> URL {
+        // `urls(for:in:)` renvoie un tableau : l'indexer directement serait un
+        // arrêt brutal si le sandbox refusait le domaine. Le repli sur le
+        // dossier temporaire garde l'app vivante, quitte à retélécharger.
         let support = FileManager.default.urls(for: .applicationSupportDirectory,
-                                               in: .userDomainMask)[0]
+                                               in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         let dir = support.appendingPathComponent(variant.directoryName, isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

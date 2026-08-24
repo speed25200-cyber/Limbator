@@ -22,6 +22,17 @@ struct QuizGameView: View {
     @State private var score = GameScore()
     @State private var finished = false
     @State private var confetti = 0
+    /// Incrémenté à chaque « Rejouer ». Il entre dans la graine de tirage :
+    /// sans lui, rejouer dans les cinq minutes redonnait mot pour mot la même
+    /// série, ce qui vide le bouton de son sens.
+    @State private var attempt = 0
+    /// Distingue « pas encore chargé » de « chargé, mais rien d'exploitable ».
+    /// Sans cette distinction, un tirage vide était indiscernable d'un tirage
+    /// en cours et l'écran tournait sans fin.
+    @State private var loaded = false
+    /// La lecture différée doit pouvoir être annulée : sans cette poignée, on
+    /// quitte l'écran et la voix parle par-dessus la vue suivante.
+    @State private var speechTask: Task<Void, Never>?
 
     private var current: GameRound? {
         rounds.indices.contains(index) ? rounds[index] : nil
@@ -37,6 +48,8 @@ struct QuizGameView: View {
                                 onReplay: restart, onDismiss: { dismiss() })
             } else if let round = current {
                 play(round)
+            } else if loaded {
+                unavailable
             } else {
                 loading
             }
@@ -46,21 +59,56 @@ struct QuizGameView: View {
         .navigationBarTitleDisplayMode(.inline)
         .overlay { ConfettiView(trigger: confetti).ignoresSafeArea() }
         .onAppear(perform: load)
-        .onDisappear { tts.cancel() }
+        .onDisappear {
+            speechTask?.cancel()
+            speechTask = nil
+            tts.cancel()
+        }
     }
 
     private func load() {
-        guard rounds.isEmpty else { return }
-        let seed = UInt64(abs(Int(Date().timeIntervalSince1970) / 300))
+        guard !loaded else { return }
+        // Le quart d'heure sert de graine stable pour une même partie ; le
+        // numéro de tentative la fait changer dès qu'on rejoue.
+        let bucket = UInt64(abs(Int(Date().timeIntervalSince1970) / 900))
+        let seed = bucket &* 31 &+ UInt64(attempt)
         rounds = ContentGenerator.shared
             .gameRounds(kind: kind, level: progress.profile.level, count: roundCount, seed: seed)
             .filter(\.isQuizPlayable)
+        loaded = true
         if kind == .listening, let first = rounds.first {
-            Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                await tts.speak(first.frenchTarget)
-            }
+            speak(first.frenchTarget, after: 500_000_000)
         }
+    }
+
+    /// Lit une cible après un court délai, en remplaçant toute lecture déjà
+    /// programmée. La tâche est retenue pour qu'un départ de l'écran l'annule.
+    private func speak(_ target: String, after delay: UInt64) {
+        speechTask?.cancel()
+        speechTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await tts.speak(target)
+        }
+    }
+
+    /// Aucune manche exploitable n'a pu être construite. Sans cet écran, la
+    /// vue restait sur son sablier indéfiniment — `onAppear` ne repasse pas —
+    /// et le jeu paraissait cassé sans rien dire.
+    private var unavailable: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "questionmark.square.dashed")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(kind.color.opacity(0.8))
+            Text(L.t("game.unavailable"))
+                .font(Theme.Typography.body)
+                .foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+            GhostButton(title: L.t("game.retry"), action: restart)
+            GhostButton(title: L.t("game.finish")) { dismiss() }
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var loading: some View {
@@ -215,10 +263,13 @@ struct QuizGameView: View {
         Task { await tts.speak(round.frenchTarget) }
 
         // Le duel d'homophones et la chasse aux accents nourrissent la
-        // répétition espacée comme le feraient des exercices.
-        if kind == .homophoneDuel || kind == .accentHunt {
-            let ruleId = kind == .accentHunt ? "accents.aigu-grave" : nil
-            if let ruleId { repetition.record(ruleId: ruleId, score: correct ? 1 : 0.25) }
+        // répétition espacée comme le feraient des exercices. La règle visée se
+        // déduit de la bonne réponse : la famille d'homophones à laquelle elle
+        // appartient, ou le diacritique qu'elle porte réellement — tout attribuer
+        // à l'aigu / grave aurait faussé la planification des mots à circonflexe
+        // ou à cédille.
+        if let ruleId = round.trainedRuleId {
+            repetition.record(ruleId: ruleId, score: correct ? 1 : 0.25)
         }
         if kind == .match || kind == .listening || kind == .flashRecall {
             repetition.record(word: round.frenchTarget, score: correct ? 1 : 0.3)
@@ -241,15 +292,15 @@ struct QuizGameView: View {
                 checked = false
             }
             if hidesTarget, let next = current {
-                Task {
-                    try? await Task.sleep(nanoseconds: 320_000_000)
-                    await tts.speak(next.frenchTarget)
-                }
+                speak(next.frenchTarget, after: 320_000_000)
             }
         }
     }
 
     private func restart() {
+        speechTask?.cancel()
+        speechTask = nil
+        tts.cancel()
         withAnimation {
             rounds = []
             index = 0
@@ -258,6 +309,8 @@ struct QuizGameView: View {
             score = GameScore()
             finished = false
         }
+        attempt += 1
+        loaded = false
         load()
     }
 }

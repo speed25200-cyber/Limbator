@@ -220,11 +220,16 @@ struct ScoreBadge: View {
     }
 
     /// « 20 » plutôt que « 20,0 » : une note ronde s'écrit sans décimale.
+    ///
+    /// Le séparateur suit la langue d'interface. Le roumain et le français
+    /// écrivent « 17,5 », l'anglais « 17.5 » : imposer la virgule à tous
+    /// donnait une note mal ponctuée à un lecteur anglophone.
     private var formatted: String {
         let value = verdict.outOfTwenty
-        return value == value.rounded()
-            ? String(Int(value))
-            : String(format: "%.1f", value).replacingOccurrences(of: ".", with: ",")
+        guard value != value.rounded() else { return String(Int(value)) }
+        let separator = L.lang == "en" ? "." : ","
+        return String(format: "%.1f", value)
+            .replacingOccurrences(of: ".", with: separator)
     }
 }
 

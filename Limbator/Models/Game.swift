@@ -130,6 +130,29 @@ struct GameRound: Identifiable, Codable, Hashable {
     var correctAnswer: String {
         options.indices.contains(correctIndex) ? options[correctIndex] : ""
     }
+
+    /// La règle d'orthographe que cette manche entraîne, s'il y en a une.
+    ///
+    /// Elle se déduit de la bonne réponse, jamais de la consigne : la famille
+    /// d'homophones à laquelle la forme juste appartient, ou le diacritique
+    /// qu'elle porte réellement. Tout rattacher à l'aigu / grave — ce que
+    /// faisait la première version — planifiait la révision des mots à
+    /// circonflexe ou à cédille sous une règle qu'ils n'illustrent pas.
+    var trainedRuleId: String? {
+        switch GameKind(rawValue: kind) {
+        case .homophoneDuel:
+            guard let set = OrthoSeeds.homophoneSet(containing: correctAnswer) else { return nil }
+            return "homophones." + set.id
+        case .accentHunt:
+            let marks = FrenchPhonology.diacriticProfile(correctAnswer).map { $0.mark }
+            if marks.contains("ç") { return "accents.cedille" }
+            if marks.contains(where: { "ëïüÿ".contains($0) }) { return "accents.trema" }
+            if marks.contains(where: { "êâîôû".contains($0) }) { return "accents.circonflexe" }
+            return "accents.aigu-grave"
+        default:
+            return nil
+        }
+    }
 }
 
 struct GameScore: Codable, Hashable {

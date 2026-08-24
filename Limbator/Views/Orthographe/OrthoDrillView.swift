@@ -164,10 +164,6 @@ struct OrthoDrillView: View {
                     .monospacedDigit()
                 if current?.isGenerated == true {
                     Chip(text: L.t("ortho.generated"), systemImage: "sparkles", tint: Theme.lavande)
-                } else if isGenerating {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.lavande.opacity(0.6))
                 }
                 Spacer()
                 HStack(spacing: 5) {
@@ -182,7 +178,26 @@ struct OrthoDrillView: View {
             }
             MasteryBar(value: Double(index) / Double(max(1, drills.count)),
                        tint: module.color, height: 5)
+
+            // Le travail du modèle se dit en toutes lettres, sur sa propre
+            // ligne : une simple étincelle à côté du compteur n'apprenait rien
+            // à personne, et la mettre dans la même rangée que le score la
+            // ferait tronquer sur un petit écran.
+            if isGenerating {
+                HStack(spacing: 7) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .bold))
+                    Text(L.t("ortho.generating"))
+                        .font(Theme.Typography.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Theme.lavande.opacity(0.85))
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: isGenerating)
     }
 
     /// La phrase, trou compris. Le trou est un trait souligné dans la couleur du

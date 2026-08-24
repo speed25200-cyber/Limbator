@@ -24,37 +24,42 @@ python3 scripts/check_swift_syntax.py > /tmp/limb1.log 2>&1 \
     && pass "$(grep 'Parsed' /tmp/limb1.log | xargs) — tout analyse proprement" \
     || { cat /tmp/limb1.log; fail "syntaxe Swift"; }
 
-info "2. Références : types, cas d'énumération, clés de traduction"
+info "2. Pièges de compilation SwiftUI (arité, @ViewBuilder, chemins de clé)"
+python3 scripts/check_compile_traps.py > /tmp/limb1b.log 2>&1 \
+    && pass "$(tail -1 /tmp/limb1b.log | xargs)" \
+    || { cat /tmp/limb1b.log; fail "pièges de compilation"; }
+
+info "3. Références : types, cas d'énumération, clés de traduction"
 python3 scripts/check_symbols.py > /tmp/limb2.log 2>&1 \
     && pass "$(grep 'Clés de traduction' /tmp/limb2.log | xargs)" \
     || { cat /tmp/limb2.log; fail "références non résolues"; }
 
-info "3. Switch exhaustifs sur les énumérations"
+info "4. Switch exhaustifs sur les énumérations"
 python3 scripts/check_exhaustiveness.py > /tmp/limb3b.log 2>&1 \
     && pass "$(grep 'switch analysés' /tmp/limb3b.log | xargs) — tous exhaustifs" \
     || { cat /tmp/limb3b.log; fail "switch incomplet"; }
 
-info "4. Chaînes de format et arguments, dans les trois langues"
+info "5. Chaînes de format et arguments, dans les trois langues"
 python3 scripts/check_format_strings.py > /tmp/limb3c.log 2>&1 \
     && pass "$(tail -1 /tmp/limb3c.log | xargs)" \
     || { cat /tmp/limb3c.log; fail "chaînes de format"; }
 
-info "5. Logique d'orthographe exécutée sur du vrai français"
+info "6. Logique d'orthographe exécutée sur du vrai français"
 python3 scripts/exec_ortho_logic.py > /tmp/limb3.log 2>&1 \
     && pass "$(tail -1 /tmp/limb3.log | xargs)" \
     || { cat /tmp/limb3.log; fail "logique d'orthographe"; }
 
-info "6. Cohérence du contenu pédagogique"
+info "7. Cohérence du contenu pédagogique"
 python3 scripts/check_content_integrity.py > /tmp/limb4.log 2>&1 \
     && pass "$(grep -E 'Exercices|Dictées' /tmp/limb4.log | xargs)" \
     || { cat /tmp/limb4.log; fail "contenu pédagogique"; }
 
-info "7. Risques d'arrêt brutal"
+info "8. Risques d'arrêt brutal"
 python3 scripts/audit_crash_risks.py > /tmp/limb5.log 2>&1 \
     && pass "$(tail -1 /tmp/limb5.log | xargs)" \
     || { cat /tmp/limb5.log; fail "risques d'arrêt brutal"; }
 
-info "8. Fichiers structurés (JSON, plist, XML)"
+info "9. Fichiers structurés (JSON, plist, XML)"
 python3 - > /tmp/limb6.log 2>&1 <<'PY'
 import json, plistlib, sys
 import xml.etree.ElementTree as ET
@@ -80,7 +85,7 @@ print(f"{total} fichiers structurés valides")
 PY
 [ $? -eq 0 ] && pass "$(cat /tmp/limb6.log)" || { cat /tmp/limb6.log; fail "fichiers structurés"; }
 
-info "9. Configuration de construction (project.yml, codemagic.yaml)"
+info "10. Configuration de construction (project.yml, codemagic.yaml)"
 python3 - > /tmp/limb7.log 2>&1 <<'PY'
 import sys, yaml
 from pathlib import Path
@@ -127,7 +132,7 @@ print("project.yml et codemagic.yaml cohérents")
 PY
 [ $? -eq 0 ] && pass "$(cat /tmp/limb7.log)" || { cat /tmp/limb7.log; fail "configuration de construction"; }
 
-info "10. Aucun emoji dans les sources"
+info "11. Aucun emoji dans les sources"
 python3 - > /tmp/limb8.log 2>&1 <<'PY'
 import re, sys
 from pathlib import Path
@@ -143,7 +148,7 @@ sys.exit(1 if hits else 0)
 PY
 [ $? -eq 0 ] && pass "Aucun emoji" || { cat /tmp/limb8.log; fail "emoji trouvé"; }
 
-info "11. Ressources indispensables"
+info "12. Ressources indispensables"
 test -f Limbator/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png \
     && pass "Icône présente ($(du -h Limbator/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png | cut -f1))" \
     || fail "icône absente"
@@ -154,7 +159,7 @@ test -f Limbator.xcodeproj/xcshareddata/xcschemes/Limbator.xcscheme \
 test -x scripts/download_voice.sh \
     && pass "Script des voix exécutable" || fail "download_voice.sh non exécutable"
 
-info "12. L'icône représente bien un accent AIGU"
+info "13. L'icône représente bien un accent AIGU"
 python3 - > /tmp/limb10.log 2>&1 <<'PY'
 import sys
 from PIL import Image

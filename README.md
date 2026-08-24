@@ -195,22 +195,33 @@ se retient.
 ## Vérification
 
 Le compilateur Swift n'existe pas sur Linux, et les minutes macOS coûtent cher.
-Dix contrôles tournent donc en quelques secondes, avant toute compilation.
+Treize contrôles tournent donc en quelques secondes, avant toute compilation.
 
 ```
-1.  Syntaxe Swift              tree-sitter, tous les fichiers
-2.  Références                 types, cas d'énumération, 204 clés de traduction
-3.  Logique d'orthographe      31 groupes phonétiques, 36 classifications
-4.  Contenu pédagogique        84 exercices, 57 dictées, cohérence croisée
-5.  Risques d'arrêt brutal     déballage forcé, try!, fatalError, indexation
-6.  Fichiers structurés        JSON, plist, xcprivacy, schémas
-7.  Configuration              project.yml et codemagic.yaml cohérents
-8.  Aucun emoji
-9.  Ressources indispensables
-10. Orientation de l'accent    analyse des pixels de l'icône
+1.  Syntaxe Swift              tree-sitter, 61 fichiers
+2.  Pièges de compilation      arité de buildBlock, @ViewBuilder, chemins de clé
+3.  Références                 types, cas d'énumération, 208 clés de traduction
+4.  Switch exhaustifs          22 switch sur énumération
+5.  Chaînes de format          arguments cohérents dans les trois langues
+6.  Logique d'orthographe      31 groupes phonétiques, 36 classifications
+7.  Contenu pédagogique        84 exercices, 57 dictées, cohérence croisée
+8.  Risques d'arrêt brutal     déballage forcé, try!, fatalError, indexation
+9.  Fichiers structurés        JSON, plist, xcprivacy, schémas
+10. Configuration              project.yml et codemagic.yaml cohérents
+11. Aucun emoji
+12. Ressources indispensables
+13. Orientation de l'accent    analyse des pixels de l'icône
 ```
 
-Le contrôle 3 mérite un mot. `scripts/ortho_port.py` est une transposition
+Le contrôle 2 cherche trois fautes que rien ne signale sans compilateur, et dont
+le message d'Xcode ne désigne même pas la ligne : un conteneur SwiftUI qui
+dépasse dix vues filles, une fonction `some View` qui se ramifie sans
+`@ViewBuilder`, et un chemin de clé pointant vers une étiquette de tuple —
+`\.mark` sur un `(index: Int, mark: Character)` ne compile pas, alors que
+`{ $0.mark }` passe. La troisième règle a été écrite après avoir commis
+exactement cette faute.
+
+Le contrôle 6 mérite un mot. `scripts/ortho_port.py` est une transposition
 Python fidèle du moteur d'orthographe, et `exec_ortho_logic.py` la fait tourner
 sur du vrai français — en lisant les tables (pièges roumains, familles
 d'homophones) **directement dans les sources Swift**, pour qu'elles ne puissent

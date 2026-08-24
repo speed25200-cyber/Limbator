@@ -107,6 +107,14 @@ for key, where in sorted(used_keys):
     if key not in declared_keys:
         problems.append(f"{where} : clé absente du Localizer — {key}")
 
+# Le contrôle vaut dans les deux sens. Une clé traduite en trois langues que
+# personne n'affiche n'est pas seulement du poids mort : relue plus tard, elle
+# laisse croire que l'écran correspondant existe. Vingt-cinq d'entre elles
+# décrivaient des vues jamais construites.
+unused_keys = declared_keys - {key for key, _ in used_keys}
+for key in sorted(unused_keys):
+    problems.append(f"Localizer : clé traduite mais jamais affichée — {key}")
+
 # ---------------------------------------------------------------------------
 # 2. Cas d'énumération
 # ---------------------------------------------------------------------------

@@ -389,6 +389,65 @@ final class ContentIntegrityTests: XCTestCase {
         XCTAssertFalse(empty.isPlayable)
     }
 
+    func testQuizGamesAlwaysHaveEnoughOptionsAtEveryLevel() {
+        // `QuizGameView` ne garde que les manches à deux propositions ou plus.
+        // Si un niveau n'en produisait aucune, l'écran n'aurait rien à montrer.
+        for kind in [GameKind.match, .listening, .accentHunt, .homophoneDuel] {
+            for level in ProficiencyLevel.allCases {
+                let usable = ContentGenerator.shared
+                    .gameRounds(kind: kind, level: level, count: 10, seed: 11)
+                    .filter(\.isQuizPlayable)
+                XCTAssertFalse(usable.isEmpty,
+                               "\(kind.rawValue) au niveau \(level.rawValue) : aucune manche à choix multiple")
+            }
+        }
+    }
+
+    // =========================================================================
+    // MARK: - Ce qu'une manche fait réviser
+    // =========================================================================
+
+    func testTrainedRuleResolvesToARealRule() {
+        // La manche nourrit la répétition espacée sous un identifiant de règle.
+        // Un identifiant inventé créerait une fiche fantôme, révisée sans
+        // jamais correspondre à une leçon.
+        for kind in [GameKind.accentHunt, .homophoneDuel] {
+            let rounds = GameSeeds.rounds(kind: kind, level: .c1, count: 12, seed: 5)
+            XCTAssertFalse(rounds.isEmpty)
+            for round in rounds {
+                guard let ruleId = round.trainedRuleId else {
+                    XCTFail("\(kind.rawValue) : « \(round.correctAnswer) » n'entraîne aucune règle")
+                    continue
+                }
+                XCTAssertNotNil(OrthoRules.rule(id: ruleId),
+                                "identifiant de règle inconnu : \(ruleId)")
+            }
+        }
+    }
+
+    func testTrainedRuleFollowsTheDiacriticActuallyPresent() {
+        func round(_ answer: String, _ kind: GameKind) -> GameRound {
+            GameRound(kind: kind.rawValue, prompt: "p", frenchTarget: answer,
+                      options: [answer, "leurre"], correctIndex: 0)
+        }
+        XCTAssertEqual(round("garçon", .accentHunt).trainedRuleId, "accents.cedille")
+        XCTAssertEqual(round("fenêtre", .accentHunt).trainedRuleId, "accents.circonflexe")
+        XCTAssertEqual(round("Noël", .accentHunt).trainedRuleId, "accents.trema")
+        XCTAssertEqual(round("élève", .accentHunt).trainedRuleId, "accents.aigu-grave")
+    }
+
+    func testOnlyOrthographicGamesFeedTheRuleScheduler() {
+        // Un jeu de vocabulaire ne doit pas replanifier une règle : il ferait
+        // croire à une révision qui n'a pas eu lieu.
+        for kind in [GameKind.match, .listening, .flashRecall, .wordPuzzle, .speaking] {
+            let rounds = GameSeeds.rounds(kind: kind, level: .b1, count: 4, seed: 2)
+            for round in rounds {
+                XCTAssertNil(round.trainedRuleId,
+                             "\(kind.rawValue) planifie la règle \(round.trainedRuleId ?? "")")
+            }
+        }
+    }
+
     func testAccentVariantsDifferFromTheTruth() {
         for card in GameSeeds.accentedPool.prefix(30) {
             for variant in GameSeeds.accentVariants(of: card.french) {

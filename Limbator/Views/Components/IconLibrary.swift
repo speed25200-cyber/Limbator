@@ -152,15 +152,19 @@ struct LimbIllustrationView: View {
 // MARK: - L'emblème : É
 // =============================================================================
 
-/// L'accent aigu détaché au-dessus d'un E : l'emblème de Limbator.
+/// L'emblème de Limbator : un **É** didone, l'accent détaché.
 ///
-/// Le choix n'est pas graphique mais pédagogique. En français, l'accent n'est
-/// pas un ornement posé sur une lettre : il fait partie du mot. Le montrer
-/// séparé, en or, au-dessus d'un E sobre, dit exactement cela.
+/// Le même dessin que l'icône de l'app — mêmes proportions, même accent taillé
+/// en coin. Un logo qui diffère de son icône donne à l'application deux
+/// identités et n'en installe aucune.
+///
+/// Le choix du motif est pédagogique avant d'être graphique : en français
+/// l'accent n'est pas un ornement posé sur une lettre, il fait partie du mot.
+/// « Eleve » n'est pas « élève » mal écrit, c'est un mot qui n'existe pas.
 struct AccentEmblem: View {
     var primary: Color = Theme.or
     var secondary: Color = Theme.bleuFrance
-    /// Animation d'entrée : l'accent descend se poser sur la lettre.
+    /// Animation d'entrée : l'accent vient se poser au-dessus de la lettre.
     var animated: Bool = false
 
     @State private var settled = false
@@ -168,49 +172,113 @@ struct AccentEmblem: View {
     var body: some View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
-            let unit = side / 100
 
             ZStack {
-                // Halo diffus, pour détacher l'emblème du fond.
+                // Halo : détache l'emblème du fond sans lui ajouter de cadre.
                 Circle()
-                    .fill(RadialGradient(colors: [secondary.opacity(0.45), .clear],
+                    .fill(RadialGradient(colors: [secondary.opacity(0.42), .clear],
                                          center: .center,
-                                         startRadius: unit * 4,
-                                         endRadius: unit * 52))
+                                         startRadius: side * 0.04,
+                                         endRadius: side * 0.52))
 
-                // Le E, en trois barres — plus lisible qu'une glyphe à cette taille.
-                VStack(alignment: .leading, spacing: unit * 9) {
-                    bar(width: unit * 46, unit: unit)
-                    bar(width: unit * 34, unit: unit)
-                    bar(width: unit * 46, unit: unit)
-                }
-                .offset(y: unit * 8)
+                DidoneE()
+                    .fill(LinearGradient(colors: [.white, Theme.ivoire.opacity(0.86)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: side * 0.46, height: side * 0.50)
+                    .offset(y: side * 0.10)
+                    .shadow(color: .black.opacity(0.45), radius: side * 0.02, y: side * 0.012)
 
-                // L'accent aigu : détaché, dans l'or de la marque.
-                RoundedRectangle(cornerRadius: unit * 2, style: .continuous)
-                    .fill(LinearGradient(colors: [Theme.orClair, primary],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: unit * 26, height: unit * 7)
-                    .rotationEffect(.degrees(-28))
-                    .shadow(color: primary.opacity(0.75), radius: unit * 3)
-                    .offset(x: unit * 4, y: unit * (settled || !animated ? -30 : -46))
-                    .opacity(settled || !animated ? 1 : 0.2)
+                AcuteAccent()
+                    .fill(LinearGradient(colors: [Theme.orClair, primary, Color(hex: 0xB88A38)],
+                                         startPoint: .topTrailing, endPoint: .bottomLeading))
+                    .frame(width: side * 0.20, height: side * 0.11)
+                    .shadow(color: primary.opacity(0.8), radius: side * 0.035)
+                    .offset(x: side * 0.02,
+                            y: side * (settled || !animated ? -0.24 : -0.40))
+                    .opacity(settled || !animated ? 1 : 0.15)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .onAppear {
                 guard animated else { return }
-                withAnimation(.spring(response: 0.8, dampingFraction: 0.55).delay(0.25)) {
+                withAnimation(.spring(response: 0.85, dampingFraction: 0.58).delay(0.28)) {
                     settled = true
                 }
             }
         }
     }
+}
 
-    private func bar(width: CGFloat, unit: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: unit * 2, style: .continuous)
-            .fill(LinearGradient(colors: [.white, Color.white.opacity(0.72)],
-                                 startPoint: .leading, endPoint: .trailing))
-            .frame(width: width, height: unit * 8)
+/// Un E de style didone : hampe pleine, barres en déliés, empattements marqués.
+/// Le contraste entre les deux — et non la présence d'empattements — est ce qui
+/// fait lire « typographie française ».
+struct DidoneE: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        let x = rect.minX, y = rect.minY
+
+        let stem = w * 0.205
+        let hair = h * 0.058
+        let serifW = w * 0.038
+        let serifH = h * 0.040
+        let topLen = w * 0.800
+        let midLen = w * 0.615
+        let botLen = w * 0.880
+        let midY = y + h * 0.455 - hair * 0.5
+
+        var path = Path()
+
+        // Hampe.
+        path.addRect(CGRect(x: x, y: y, width: stem, height: h))
+
+        // Barres légèrement fuselées : plus épaisses contre la hampe.
+        func bar(_ top: CGFloat, _ length: CGFloat, _ thickness: CGFloat) {
+            let near = thickness * 1.09
+            let far = thickness * 0.91
+            var arm = Path()
+            arm.move(to: CGPoint(x: x, y: top - (near - thickness) / 2))
+            arm.addLine(to: CGPoint(x: x + length, y: top + (thickness - far) / 2))
+            arm.addLine(to: CGPoint(x: x + length, y: top + thickness - (thickness - far) / 2))
+            arm.addLine(to: CGPoint(x: x, y: top + thickness + (near - thickness) / 2))
+            arm.closeSubpath()
+            path.addPath(arm)
+        }
+        bar(y, topLen, hair)
+        bar(midY, midLen, hair * 0.88)
+        bar(y + h - hair, botLen, hair)
+
+        // Empattements aux terminaux des barres.
+        path.addRect(CGRect(x: x + topLen - serifW, y: y - serifH,
+                            width: serifW, height: hair + serifH * 2))
+        path.addRect(CGRect(x: x + midLen - serifW * 0.85, y: midY - serifH * 0.8,
+                            width: serifW * 0.85, height: hair + serifH * 1.6))
+        path.addRect(CGRect(x: x + botLen - serifW, y: y + h - hair - serifH,
+                            width: serifW, height: hair + serifH * 2))
+
+        // Empattements de la hampe.
+        path.addRect(CGRect(x: x - serifW * 0.9, y: y - serifH * 0.5,
+                            width: stem + serifW * 1.25, height: hair + serifH * 0.5))
+        path.addRect(CGRect(x: x - serifW * 0.9, y: y + h - hair,
+                            width: stem + serifW * 1.25, height: hair + serifH * 0.5))
+
+        return path
+    }
+}
+
+/// L'accent aigu : un coin qui **monte vers la droite**, épais en haut.
+///
+/// Le sens n'est pas une préférence graphique. L'aigu monte (é), le grave
+/// descend (è), et les deux notent des sons différents. Les dessiner à
+/// l'identique serait afficher une faute dans une application qui corrige.
+struct AcuteAccent: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let thin = rect.height * 0.30
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.52))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - thin * 0.55))
+        path.closeSubpath()
+        return path
     }
 }
 

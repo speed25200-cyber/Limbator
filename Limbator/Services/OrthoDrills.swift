@@ -481,7 +481,7 @@ enum OrthoDrills {
     /// famille, la graphie retirée, et toutes les autres graphies proposées
     /// comme leurres. La bonne réponse est correcte **par construction** —
     /// aucune saisie manuelle ne peut la fausser.
-    static var homophoneDrills: [OrthoDrill] {
+    static let homophoneDrills: [OrthoDrill] = {
         var drills: [OrthoDrill] = []
         for set in OrthoSeeds.homophoneSets {
             for member in set.members {
@@ -502,7 +502,7 @@ enum OrthoDrills {
             }
         }
         return drills
-    }
+    }()
 
     /// Remplace la première occurrence **du mot entier** par le marqueur `___`.
     /// La comparaison se fait mot à mot : sans cela, chercher « a » dans
@@ -544,9 +544,7 @@ enum OrthoDrills {
         }
     }
 
-    static var all: [OrthoDrill] {
-        OrthoModule.allCases.flatMap { handwritten(for: $0) }
-    }
+    static let all: [OrthoDrill] = OrthoModule.allCases.flatMap { handwritten(for: $0) }
 
     /// Les exercices d'un module, mélangés de façon déterministe à partir de
     /// `seed` : deux ouvertures de l'écran donnent des séries différentes, mais

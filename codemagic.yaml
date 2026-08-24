@@ -1,0 +1,354 @@
+# Codemagic — construction, tests et distribution de Limbator.
+#
+# Trois flux :
+#   validate   : rapide — vérification statique, compilation et tests sur
+#                simulateur, sans signature.
+#   testflight : distribution TestFlight (clé App Store Connect requise).
+#   release    : publication App Store, déclenchée par une étiquette v*.
+#
+# Tout tourne sur `mac_mini_m2` : MLX-Swift exige Apple Silicon dès la
+# compilation, pour produire ses noyaux Metal.
+#
+# Graphe SwiftPM sans diamant : seul mlx-swift-lm consomme mlx-swift, donc un
+# seul target C `Cmlx`. Xcode 16+ exige par ailleurs que les macros SwiftPM
+# soient approuvées avant usage — impossible à cliquer en intégration continue,
+# d'où l'étape « Faire confiance aux macros ».
+
+workflows:
+
+  # ==========================================================================
+  validate:
+    name: Vérification (compilation + tests)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: Limbator.xcodeproj
+        XCODE_SCHEME: Limbator
+        BUNDLE_ID: com.limbator.app
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: "main"
+          include: true
+          source: true
+        - pattern: "claude/**"
+          include: true
+          source: true
+    scripts:
+      - name: Chaîne d'outils
+        script: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available | grep "iPhone 16 Pro" || true
+
+      - name: Vérification statique (la même qu'en local)
+        script: |
+          # Ces contrôles tournent sur Linux comme sur macOS et coûtent quelques
+          # secondes : les passer AVANT d'allumer le compilateur évite de brûler
+          # des minutes macOS sur une faute de frappe.
+          pip3 install --quiet --break-system-packages tree-sitter tree-sitter-swift Pillow pyyaml \
+            || pip3 install --quiet tree-sitter tree-sitter-swift Pillow pyyaml
+          ./scripts/run_all_checks.sh
+
+      - name: Générer le projet Xcode (XcodeGen)
+        script: |
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Faire confiance aux macros SwiftPM
+        script: |
+          set -e
+          # Sans cela : « Macro "MLXHuggingFaceMacros" must be enabled before it
+          # can be used ». Il n'y a pas d'interface pour cliquer « Trust » en CI.
+          # ATTENTION : la seconde clé porte la faute de frappe d'Apple
+          # (« Validatation ») — elle doit être écrite exactement ainsi.
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
+
+      - name: Récupérer sherpa-onnx et les voix françaises
+        script: |
+          set -e
+          curl -L -o /tmp/sherpa.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-ios.tar.bz2
+          rm -rf /tmp/sherpa && mkdir -p /tmp/sherpa
+          tar xjf /tmp/sherpa.tar.bz2 -C /tmp/sherpa
+          rm -rf Vendor && mkdir -p Vendor
+          cp -R /tmp/sherpa/build-ios/sherpa-onnx.xcframework Vendor/
+          cp -R /tmp/sherpa/build-ios/ios-onnxruntime/1.17.1/onnxruntime.xcframework Vendor/
+          # Une carte de module, pour que Swift puisse écrire `import sherpa_onnx`.
+          for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+            printf 'module sherpa_onnx {\n  header "sherpa-onnx/c-api/c-api.h"\n  export *\n}\n' \
+              > "Vendor/sherpa-onnx.xcframework/$slice/Headers/module.modulemap"
+          done
+          ./scripts/download_voice.sh
+
+      - name: Résoudre les dépendances SwiftPM
+        script: |
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -resolvePackageDependencies \
+            -clonedSourcePackagesDirPath "$CM_BUILD_DIR/SwiftPMCache"
+
+      - name: Installer la chaîne Metal
+        script: |
+          # Xcode 26 ne l'embarque plus par défaut, mais mlx-swift compile ses
+          # shaders .metal à la construction : sans elle, « cannot execute tool
+          # 'metal' due to missing Metal Toolchain ».
+          xcodebuild -downloadComponent MetalToolchain \
+            || echo "MetalToolchain déjà présent ou indisponible"
+          xcrun -f metal && echo "outil metal disponible" || echo "metal toujours absent"
+
+      - name: Compiler pour le simulateur
+        script: |
+          set -o pipefail
+          FORMAT=$(command -v xcbeautify || echo cat)
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16 Pro,OS=latest" \
+            -clonedSourcePackagesDirPath "$CM_BUILD_DIR/SwiftPMCache" \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            build 2>&1 | "$FORMAT" || exit 1
+
+      - name: Exécuter les tests unitaires
+        script: |
+          set -o pipefail
+          FORMAT=$(command -v xcbeautify || echo cat)
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16 Pro,OS=latest" \
+            -clonedSourcePackagesDirPath "$CM_BUILD_DIR/SwiftPMCache" \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath "$CM_BUILD_DIR/TestResults.xcresult" \
+            test 2>&1 | "$FORMAT" || exit 1
+    artifacts:
+      - $CM_BUILD_DIR/TestResults.xcresult
+    publishing:
+      email:
+        recipients:
+          - hakik2.ramadani@gmail.com
+        notify:
+          success: false
+          failure: true
+
+  # ==========================================================================
+  testflight:
+    name: Distribution TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      app_store_connect: PetMind ASC API
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: Limbator.xcodeproj
+        XCODE_SCHEME: Limbator
+        BUNDLE_ID: com.limbator.app
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.limbator.app
+    scripts:
+      - name: Numéro de build depuis le compteur
+        script: |
+          cd "$CM_BUILD_DIR"
+          agvtool new-version -all $(($PROJECT_BUILD_NUMBER + 1))
+
+      - name: Récupérer sherpa-onnx et les voix françaises
+        script: |
+          set -e
+          curl -L -o /tmp/sherpa.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-ios.tar.bz2
+          rm -rf /tmp/sherpa && mkdir -p /tmp/sherpa
+          tar xjf /tmp/sherpa.tar.bz2 -C /tmp/sherpa
+          rm -rf Vendor && mkdir -p Vendor
+          cp -R /tmp/sherpa/build-ios/sherpa-onnx.xcframework Vendor/
+          cp -R /tmp/sherpa/build-ios/ios-onnxruntime/1.17.1/onnxruntime.xcframework Vendor/
+          for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+            printf 'module sherpa_onnx {\n  header "sherpa-onnx/c-api/c-api.h"\n  export *\n}\n' \
+              > "Vendor/sherpa-onnx.xcframework/$slice/Headers/module.modulemap"
+          done
+          ./scripts/download_voice.sh
+
+      - name: Générer le projet Xcode (XcodeGen)
+        script: |
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Faire confiance aux macros SwiftPM
+        script: |
+          set -e
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
+
+      - name: Résoudre les dépendances SwiftPM
+        script: |
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+                     -resolvePackageDependencies
+
+      - name: Signature
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Installer la chaîne Metal
+        script: |
+          xcodebuild -downloadComponent MetalToolchain \
+            || echo "MetalToolchain déjà présent ou indisponible"
+
+      - name: Injecter la clé Azure (variable secrète, jamais dans git)
+        script: |
+          set -e
+          PLIST="Limbator/Resources/Info.plist"
+          if [ -n "${AZURE_SPEECH_KEY:-}" ]; then
+            plutil -replace AZURE_TTS_KEY -string "$AZURE_SPEECH_KEY" "$PLIST"
+            plutil -replace AZURE_TTS_REGION -string "${AZURE_SPEECH_REGION:-westeurope}" "$PLIST"
+            echo "✓ Voix Azure activée (région : ${AZURE_SPEECH_REGION:-westeurope})"
+          else
+            echo "ℹ AZURE_SPEECH_KEY non défini — l'app utilise la voix neurale embarquée."
+            echo "  C'est un fonctionnement normal : Azure est un supplément, pas un prérequis."
+          fi
+
+      - name: Construire l'IPA
+        script: |
+          set +e
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --config Release \
+            --archive-flags="-destination 'generic/platform=iOS' -skipMacroValidation"
+          RC=$?
+          if [ "$RC" -ne 0 ]; then
+            echo "######## build-ipa a échoué (rc=$RC) — erreur brute d'xcodebuild ########"
+            xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" -config Release \
+              -destination 'generic/platform=iOS' -archivePath /tmp/diag.xcarchive archive \
+              CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO -skipMacroValidation \
+              > /tmp/diag.log 2>&1
+            grep -nE "error:|must be enabled|[Cc]ycle (in|inside|between)|Multiple commands produce|No such module|ARCHIVE FAILED" \
+              /tmp/diag.log | head -60
+            tail -50 /tmp/diag.log
+            exit "$RC"
+          fi
+
+      - name: Vérifier que les voix sont dans l'IPA
+        script: |
+          set -e
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          LIST=$(unzip -l "$IPA")
+          echo "$LIST" | grep -iE "fr_female|fr_male|espeak" || echo "(aucune voix trouvée)"
+          echo "$LIST" | grep -q "\.app/fr_female\.onnx" \
+            && echo "$LIST" | grep -q "\.app/fr_male\.onnx" \
+            && echo "$LIST" | grep -q "espeak-ng-data" \
+            || { echo "❌ Voix françaises absentes de l'IPA — l'app retomberait sur Apple. Échec."; exit 1; }
+          echo "✓ Voix neurales françaises présentes dans l'IPA."
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+      email:
+        recipients:
+          - hakik2.ramadani@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ==========================================================================
+  release:
+    name: Publication App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    integrations:
+      app_store_connect: PetMind ASC API
+    environment:
+      xcode: latest
+      vars:
+        XCODE_PROJECT: Limbator.xcodeproj
+        XCODE_SCHEME: Limbator
+        BUNDLE_ID: com.limbator.app
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.limbator.app
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: "v*"
+          include: true
+    scripts:
+      - name: Numéro de build depuis l'étiquette
+        script: |
+          cd "$CM_BUILD_DIR"
+          agvtool new-version -all $(($PROJECT_BUILD_NUMBER + 1))
+      - name: Récupérer sherpa-onnx et les voix françaises
+        script: |
+          set -e
+          curl -L -o /tmp/sherpa.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-ios.tar.bz2
+          rm -rf /tmp/sherpa && mkdir -p /tmp/sherpa
+          tar xjf /tmp/sherpa.tar.bz2 -C /tmp/sherpa
+          rm -rf Vendor && mkdir -p Vendor
+          cp -R /tmp/sherpa/build-ios/sherpa-onnx.xcframework Vendor/
+          cp -R /tmp/sherpa/build-ios/ios-onnxruntime/1.17.1/onnxruntime.xcframework Vendor/
+          for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+            printf 'module sherpa_onnx {\n  header "sherpa-onnx/c-api/c-api.h"\n  export *\n}\n' \
+              > "Vendor/sherpa-onnx.xcframework/$slice/Headers/module.modulemap"
+          done
+          ./scripts/download_voice.sh
+      - name: Générer le projet Xcode (XcodeGen)
+        script: |
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+      - name: Faire confiance aux macros SwiftPM
+        script: |
+          set -e
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
+      - name: Signature
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: Installer la chaîne Metal
+        script: |
+          xcodebuild -downloadComponent MetalToolchain \
+            || echo "MetalToolchain déjà présent ou indisponible"
+      - name: Injecter la clé Azure (variable secrète, jamais dans git)
+        script: |
+          set -e
+          PLIST="Limbator/Resources/Info.plist"
+          if [ -n "${AZURE_SPEECH_KEY:-}" ]; then
+            plutil -replace AZURE_TTS_KEY -string "$AZURE_SPEECH_KEY" "$PLIST"
+            plutil -replace AZURE_TTS_REGION -string "${AZURE_SPEECH_REGION:-westeurope}" "$PLIST"
+          fi
+      - name: Construire et archiver
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --config Release \
+            --archive-flags="-skipMacroValidation"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_app_store: true
+        release_type: AFTER_APPROVAL
+        copyright: 2026 Limbator

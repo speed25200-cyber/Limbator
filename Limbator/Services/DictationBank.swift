@@ -279,7 +279,7 @@ enum DictationBank {
     // MARK: - Index
     // =========================================================================
 
-    static var all: [DictationItem] { a1 + a2 + b1 + b2 + c1 }
+    static let all: [DictationItem] = a1 + a2 + b1 + b2 + c1
 
     static func dictations(for level: ProficiencyLevel) -> [DictationItem] {
         switch level {

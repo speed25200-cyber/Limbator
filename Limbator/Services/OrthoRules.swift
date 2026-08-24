@@ -464,8 +464,8 @@ enum OrthoRules {
     /// **dérivées** des familles déclarées dans `OrthoSeeds`. Une famille
     /// ajoutée là devient automatiquement une règle consultable ici — pas de
     /// contenu à tenir en double, donc pas de contenu qui diverge.
-    static var homophoneRules: [OrthoRule] {
-        OrthoSeeds.homophoneSets.map { set in
+    static let homophoneRules: [OrthoRule] = {
+        return OrthoSeeds.homophoneSets.map { set in
             let forms = set.forms.joined(separator: " / ")
             let tests = set.members
                 .map { "« \($0.form) » : \($0.test)" }
@@ -482,16 +482,15 @@ enum OrthoRules {
                 mnemonic: nil,
                 level: set.level)
         }
-    }
+    }()
 
     // =========================================================================
     // MARK: - Index
     // =========================================================================
 
-    static var all: [OrthoRule] {
+    static let all: [OrthoRule] =
         accents + homophoneRules + verbEndings + agreements
             + plurals + doubleLetters + silentLetters + roTraps
-    }
 
     static func rules(for module: OrthoModule) -> [OrthoRule] {
         switch module {

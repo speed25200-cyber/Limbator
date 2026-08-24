@@ -96,6 +96,10 @@ declared_keys = set(re.findall(r'^\s+"([a-z][\w.]*)":\s*"', localizer, re.M))
 
 used_keys = set()
 for path, text in RAW.items():
+    # Les tests emploient volontairement une clé absente pour vérifier le
+    # repli : les inclure ici ferait échouer le contrôle sur une intention.
+    if "LimbatorTests" in str(path):
+        continue
     for key in re.findall(r'L\.t\(\s*"([^"]+)"', text):
         used_keys.add((key, rel(path)))
 

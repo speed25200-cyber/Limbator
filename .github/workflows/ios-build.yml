@@ -1,0 +1,144 @@
+name: Limbator — vérification
+
+# Deux niveaux :
+#   • `verification` tourne sur Linux, en quelques secondes, à chaque poussée.
+#     Il attrape la grande majorité des erreurs sans consommer de minutes macOS.
+#   • `build` tourne sur macOS et compile réellement. Il est plus lent et plus
+#     coûteux : il ne démarre que si le premier est vert.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+
+  verification:
+    name: Vérification statique (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer les outils d'analyse
+        run: pip install tree-sitter tree-sitter-swift Pillow pyyaml
+
+      - name: Suite complète
+        run: ./scripts/run_all_checks.sh
+
+      - name: L'icône est-elle reproductible ?
+        run: |
+          # L'icône est engendrée par un script : elle doit se régénérer à
+          # l'identique. Une icône modifiée à la main divergerait silencieusement
+          # de son générateur.
+          cp Limbator/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png /tmp/icone-versionnee.png
+          python3 scripts/make_app_icon.py
+          if ! cmp -s /tmp/icone-versionnee.png Limbator/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png; then
+            echo "❌ L'icône versionnée diffère de celle que produit make_app_icon.py."
+            echo "   Relancez « python3 scripts/make_app_icon.py » et validez le résultat."
+            exit 1
+          fi
+          echo "✓ Icône reproductible à l'octet près"
+
+      - name: Les fichiers engendrés sont-ils à jour ?
+        run: |
+          # Localizer.swift et ContentTranslations.swift sont produits par des
+          # scripts. Les modifier à la main serait perdu à la prochaine
+          # génération : on vérifie qu'ils correspondent à leur source.
+          python3 scripts/gen_localizer.py
+          python3 scripts/gen_content_l10n.py
+          if ! git diff --quiet -- Limbator/Utilities/Localizer.swift \
+                                   Limbator/Services/ContentTranslations.swift; then
+            echo "❌ Un fichier engendré a été modifié à la main :"
+            git --no-pager diff --stat -- Limbator/Utilities/Localizer.swift \
+                                          Limbator/Services/ContentTranslations.swift
+            echo "   Modifiez plutôt scripts/gen_localizer.py ou scripts/gen_content_l10n.py."
+            exit 1
+          fi
+          echo "✓ Fichiers engendrés à jour"
+
+  build:
+    name: Compilation et tests (macOS)
+    needs: verification
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sélectionner Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || true
+
+      - name: Chaîne d'outils
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Installer XcodeGen
+        run: brew install xcodegen
+
+      - name: Récupérer sherpa-onnx et les voix françaises
+        run: |
+          set -e
+          curl -L -o /tmp/sherpa.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-ios.tar.bz2
+          rm -rf /tmp/sherpa && mkdir -p /tmp/sherpa
+          tar xjf /tmp/sherpa.tar.bz2 -C /tmp/sherpa
+          rm -rf Vendor && mkdir -p Vendor
+          cp -R /tmp/sherpa/build-ios/sherpa-onnx.xcframework Vendor/
+          cp -R /tmp/sherpa/build-ios/ios-onnxruntime/1.17.1/onnxruntime.xcframework Vendor/
+          for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+            printf 'module sherpa_onnx {\n  header "sherpa-onnx/c-api/c-api.h"\n  export *\n}\n' \
+              > "Vendor/sherpa-onnx.xcframework/$slice/Headers/module.modulemap"
+          done
+          ./scripts/download_voice.sh
+
+      - name: Générer le projet
+        run: xcodegen generate
+
+      - name: Faire confiance aux macros SwiftPM
+        run: |
+          # Xcode 16+ exige une approbation manuelle des macros SwiftPM.
+          # La seconde clé porte la faute de frappe d'Apple : ne pas la corriger.
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
+
+      - name: Résoudre les dépendances SwiftPM
+        run: |
+          xcodebuild -project Limbator.xcodeproj -scheme Limbator \
+                     -resolvePackageDependencies
+
+      - name: Installer la chaîne Metal
+        run: |
+          xcodebuild -downloadComponent MetalToolchain \
+            || echo "MetalToolchain déjà présent ou indisponible"
+
+      - name: Compiler
+        run: |
+          set -o pipefail
+          xcodebuild -project Limbator.xcodeproj -scheme Limbator \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16 Pro,OS=latest" \
+            -skipMacroValidation CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES \
+            build
+
+      - name: Tests unitaires
+        run: |
+          set -o pipefail
+          xcodebuild -project Limbator.xcodeproj -scheme Limbator \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,name=iPhone 16 Pro,OS=latest" \
+            -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath TestResults.xcresult \
+            test
+
+      - name: Conserver les résultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults.xcresult

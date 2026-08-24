@@ -284,8 +284,21 @@ struct VocabCardView: View {
     @State private var flipped = false
 
     var body: some View {
+        // La carte entière tourne d'un demi-tour autour de l'axe vertical, ce
+        // qui met son contenu en miroir. Le verso porte donc la rotation
+        // inverse : sans elle, il s'affichait à l'envers, lettres comprises.
+        //
+        // Les deux faces coexistent et se croisent en opacité plutôt que de
+        // s'échanger d'un coup : l'échange instantané montrait le verso avant
+        // même que la carte ait commencé à tourner.
         ZStack {
-            if flipped { back } else { front }
+            front
+                .opacity(flipped ? 0 : 1)
+                .accessibilityHidden(flipped)
+            back
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(flipped ? 1 : 0)
+                .accessibilityHidden(!flipped)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 290)
@@ -298,6 +311,12 @@ struct VocabCardView: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             flipped.toggle()
         }
+        // Un `onTapGesture` seul est invisible pour VoiceOver : la carte se
+        // lisait, mais personne ne pouvait la retourner à la voix.
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(L.t("lesson.flip"))
+        .accessibilityAction { flipped.toggle() }
     }
 
     private var front: some View {

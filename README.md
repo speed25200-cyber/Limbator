@@ -200,7 +200,7 @@ Treize contrôles tournent donc en quelques secondes, avant toute compilation.
 ```
 1.  Syntaxe Swift              tree-sitter, 61 fichiers
 2.  Pièges de compilation      arité de buildBlock, @ViewBuilder
-3.  Références                 types, cas d'énumération, 208 clés de traduction
+3.  Références                 types, vues mortes, 208 clés de traduction
 4.  Switch exhaustifs          22 switch sur énumération
 5.  Chaînes de format          arguments cohérents dans les trois langues
 6.  Logique d'orthographe      31 groupes phonétiques, 36 classifications

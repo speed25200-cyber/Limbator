@@ -200,7 +200,30 @@ for path, text in CODE.items():
         problems.append(f"{rel(path)} : type du projet référencé mais non déclaré — {name}")
 
 # ---------------------------------------------------------------------------
+# 4. Vues jamais posées à l'écran
+# ---------------------------------------------------------------------------
+# Une `View` que personne n'instancie est du code mort qui se lit comme une
+# fonctionnalité : on croit l'écran existant parce que la structure est là.
+# C'était le cas d'une pluie d'étoiles décorative, écrite et jamais affichée.
+
+view_declarations = {}
+for path, text in CODE.items():
+    for match in re.finditer(r"\bstruct\s+([A-Z]\w+)\s*:\s*[^{]*\bView\b", text):
+        view_declarations[match.group(1)] = path
+
+for name, home in sorted(view_declarations.items()):
+    uses = 0
+    for path, text in CODE.items():
+        hits = len(re.findall(rf"\b{name}\b", text))
+        if path == home:
+            hits -= len(re.findall(rf"\bstruct\s+{name}\b", text))
+        uses += hits
+    if uses == 0:
+        problems.append(f"{rel(home)} : vue déclarée mais jamais affichée — {name}")
+
+# ---------------------------------------------------------------------------
 print(f"Fichiers Swift     : {len(RAW)}")
+print(f"Vues déclarées     : {len(view_declarations)}")
 print(f"Types déclarés     : {len(declared_types)}")
 print(f"Clés de traduction : {len(declared_keys)} déclarées, "
       f"{len({k for k, _ in used_keys})} utilisées")

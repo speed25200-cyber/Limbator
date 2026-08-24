@@ -148,6 +148,161 @@ final class ContentGenerator: ObservableObject {
     }
 
     // =========================================================================
+    // MARK: - Exercices écrits par Gemma
+    // =========================================================================
+
+    /// Un exercice tout neuf, écrit par Gemma pour une règle précise.
+    ///
+    /// La division du travail est stricte et c'est elle qui rend l'exercice
+    /// sûr : **Gemma n'écrit que la phrase porteuse.** Les propositions, elles,
+    /// sont construites à partir du contenu vérifié — la famille d'homophones,
+    /// ou la paire juste/faux de la règle. Un modèle de cette taille se trompe
+    /// régulièrement sur « ces » et « ses » ; le laisser désigner la bonne
+    /// réponse reviendrait à faire enseigner ses erreurs.
+    ///
+    /// La phrase produite est ensuite vérifiée mot à mot : elle doit contenir
+    /// la forme visée **une fois**, comme mot entier, et **aucune** forme
+    /// concurrente — sans quoi l'exercice aurait deux bonnes réponses.
+    ///
+    /// Rend `nil` si le modèle n'est pas disponible ou si sa phrase ne passe
+    /// pas les contrôles : l'appelant garde alors l'exercice vérifié.
+    func drill(for rule: OrthoRule, native: NativeLanguage,
+               level: ProficiencyLevel) async -> OrthoDrill? {
+        guard gemma.isReady, !gemma.loadFailed else { return nil }
+
+        if rule.module == .homophones {
+            return await homophoneDrill(for: rule, native: native, level: level)
+        }
+        return await singleWordDrill(for: rule, native: native, level: level)
+    }
+
+    /// Un duel d'homophones sur une phrase inédite.
+    private func homophoneDrill(for rule: OrthoRule, native: NativeLanguage,
+                                level: ProficiencyLevel) async -> OrthoDrill? {
+        let setId = String(rule.id.dropFirst("homophones.".count))
+        guard let set = OrthoSeeds.homophoneSet(id: setId),
+              let member = set.members.randomElement() else { return nil }
+
+        let competitors = set.forms.filter { $0 != member.form }
+        guard !competitors.isEmpty else { return nil }
+
+        let system = """
+        You write exercise sentences for FRENCH learners whose native language is
+        \(native.englishName).
+
+        Write ONE French sentence that uses the word « \(member.form) » in this
+        exact grammatical role: \(member.nature).
+
+        HARD RULES:
+        - Between 5 and 16 words, level \(level.rawValue), ordinary vocabulary.
+        - The sentence must contain « \(member.form) » EXACTLY ONCE, as a whole word.
+        - It must NOT contain any of these words: \(competitors.joined(separator: ", ")).
+        - Flawless orthography: every accent, cedilla, agreement, silent letter.
+        - End with a full stop, a question mark or an exclamation mark.
+        - Give a faithful translation in \(native.englishName).
+        Output STRICT minified JSON: {"sentence":"French sentence","translation":"native"}
+        """
+
+        guard let produced: GeneratedSentence = try? await gemma.generateJSON(
+            GeneratedSentence.self, systemPrompt: system,
+            userPrompt: "Write the sentence now.", maxTokens: 200) else { return nil }
+
+        let sentence = produced.sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard carries(sentence, target: member.form, forbidding: competitors),
+              let gapped = OrthoDrills.gap(member.form, in: sentence) else { return nil }
+
+        return OrthoDrill(
+            ruleId: rule.id,
+            module: .homophones,
+            kind: .choice,
+            instruction: "Alege grafia corectă.",
+            sentence: gapped,
+            answer: member.form,                                  // vérifié
+            distractors: Array(competitors.prefix(3)),            // vérifiés
+            explanation: "« \(member.form) » = \(member.localizedNature). \(member.localizedTest)",
+            isGenerated: true)
+    }
+
+    /// Un exercice sur un mot unique : accents, consonnes doubles, lettres
+    /// muettes, pièges roumains, pluriels. La paire juste/faux vient de la
+    /// règle ; seule la phrase est neuve.
+    private func singleWordDrill(for rule: OrthoRule, native: NativeLanguage,
+                                 level: ProficiencyLevel) async -> OrthoDrill? {
+        // On ne retient que les exemples portant sur UN mot : « Elle est
+        // partie » ne se prête pas au procédé, et une phrase à trou construite
+        // dessus serait bancale.
+        let usable = rule.examples.filter { example in
+            example.wrong != nil
+                && !example.correct.contains(" ")
+                && !(example.wrong ?? "").contains(" ")
+        }
+        guard let example = usable.randomElement(), let wrong = example.wrong else { return nil }
+
+        let system = """
+        You write exercise sentences for FRENCH learners whose native language is
+        \(native.englishName).
+
+        Write ONE French sentence that naturally contains the word « \(example.correct) ».
+
+        HARD RULES:
+        - Between 5 and 16 words, level \(level.rawValue), ordinary vocabulary.
+        - The sentence must contain « \(example.correct) » EXACTLY ONCE, as a whole word,
+          spelled exactly like that.
+        - Flawless orthography everywhere else too.
+        - End with a full stop, a question mark or an exclamation mark.
+        - Give a faithful translation in \(native.englishName).
+        Output STRICT minified JSON: {"sentence":"French sentence","translation":"native"}
+        """
+
+        guard let produced: GeneratedSentence = try? await gemma.generateJSON(
+            GeneratedSentence.self, systemPrompt: system,
+            userPrompt: "Write the sentence now.", maxTokens: 200) else { return nil }
+
+        let sentence = produced.sentence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard carries(sentence, target: example.correct, forbidding: [wrong]),
+              let gapped = OrthoDrills.gap(example.correct, in: sentence) else { return nil }
+
+        // Un troisième leurre quand la nature de la règle en fournit un.
+        var decoys = [wrong]
+        for variant in GameSeeds.accentVariants(of: example.correct)
+        where decoys.count < 3 && variant != wrong && variant != example.correct {
+            decoys.append(variant)
+        }
+
+        return OrthoDrill(
+            ruleId: rule.id,
+            module: rule.module,
+            kind: .choice,
+            instruction: "Alege grafia corectă.",
+            sentence: gapped,
+            answer: example.correct,       // vérifié
+            distractors: decoys,           // vérifiés
+            explanation: example.gloss,
+            isGenerated: true)
+    }
+
+    /// La phrase porte-t-elle bien la forme visée, et elle seule ?
+    ///
+    /// Le contrôle se fait **mot à mot**, pas par recherche de sous-chaîne :
+    /// chercher « a » dans « Il a un chat » trouverait aussi le « a » de
+    /// « chat », et un exercice bâti là-dessus creuserait le trou au mauvais
+    /// endroit.
+    func carries(_ sentence: String, target: String, forbidding competitors: [String]) -> Bool {
+        let words = sentence.split(whereSeparator: { $0 == " " || $0 == "\u{00A0}" }).count
+        guard words >= 4, words <= 18 else { return false }
+        guard sentence.rangeOfCharacter(from: CharacterSet(charactersIn: ".!?")) != nil else { return false }
+        guard !sentence.contains("{"), !sentence.contains("}"), !sentence.contains("\\") else { return false }
+
+        let tokens = OrthographyEngine.tokenize(sentence)
+            .filter { !$0.isPunctuation }
+            .map { $0.text.lowercased() }
+
+        guard tokens.filter({ $0 == target.lowercased() }).count == 1 else { return false }
+        let forbidden = Set(competitors.map { $0.lowercased() })
+        return Set(tokens).isDisjoint(with: forbidden)
+    }
+
+    // =========================================================================
     // MARK: - Dictées
     // =========================================================================
 
@@ -418,6 +573,11 @@ private struct GeneratedCard: Decodable {
 
 private struct GeneratedDictation: Decodable {
     let text: String
+    let translation: String
+}
+
+private struct GeneratedSentence: Decodable {
+    let sentence: String
     let translation: String
 }
 

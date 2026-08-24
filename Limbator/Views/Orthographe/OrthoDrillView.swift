@@ -13,6 +13,7 @@ struct OrthoDrillView: View {
     @EnvironmentObject var repetition: SpacedRepetition
     @EnvironmentObject var progress: ProgressTracker
     @EnvironmentObject var tts: TTSService
+    @EnvironmentObject var gemma: GemmaService
     @Environment(\.dismiss) private var dismiss
 
     @State private var drills: [OrthoDrill] = []
@@ -23,6 +24,10 @@ struct OrthoDrillView: View {
     @State private var score = GameScore()
     @State private var finished = false
     @State private var confetti = 0
+    @State private var isGenerating = false
+    /// Change à chaque nouvelle série : c'est lui qui relance le chargement et
+    /// la génération après un « encore une série ».
+    @State private var sessionId = UUID()
     @FocusState private var fieldFocused: Bool
 
     private var current: OrthoDrill? {
@@ -43,7 +48,13 @@ struct OrthoDrillView: View {
         .navigationTitle(module.localizedTitle)
         .navigationBarTitleDisplayMode(.inline)
         .overlay { ConfettiView(trigger: confetti).ignoresSafeArea() }
-        .onAppear(perform: loadDrills)
+        .task(id: sessionId) {
+            // Le chargement et la génération partagent la même tâche : ainsi
+            // la seconde ne peut pas démarrer avant que la série existe, et un
+            // « encore une série » relance les deux.
+            loadDrills()
+            await topUpWithGeneratedDrills()
+        }
     }
 
     // =========================================================================
@@ -66,6 +77,48 @@ struct OrthoDrillView: View {
             drills = focused + rest.prefix(max(0, drillCount - focused.count))
         } else {
             drills = OrthoDrills.drills(module: module, count: drillCount, seed: seed)
+        }
+    }
+
+    /// Remplace les derniers exercices de la série par des exercices écrits
+    /// par Gemma, quand il est disponible.
+    ///
+    /// Deux décisions de conception. D'abord **le nombre d'exercices ne
+    /// bouge pas** : un dénominateur qui grandit en cours de série (« 3 / 8 »
+    /// devenant « 3 / 11 ») donne l'impression qu'on n'avance pas. Ensuite on
+    /// ne remplace que des exercices **pas encore atteints** : voir une
+    /// question changer sous les yeux serait déroutant.
+    ///
+    /// Si Gemma est absent ou si sa phrase ne passe pas les contrôles, la série
+    /// vérifiée reste telle quelle. L'écran ne dépend jamais du modèle.
+    private func topUpWithGeneratedDrills() async {
+        guard gemma.isReady, !gemma.loadFailed, !drills.isEmpty else { return }
+
+        // Les règles éligibles : celles du module, la règle visée en premier.
+        var candidates = OrthoRules.rules(for: module)
+        if let focusRuleId, let focused = OrthoRules.rule(id: focusRuleId) {
+            candidates.removeAll { $0.id == focused.id }
+            candidates.insert(focused, at: 0)
+        }
+        guard !candidates.isEmpty else { return }
+
+        isGenerating = true
+        defer { isGenerating = false }
+
+        let native = progress.profile.nativeLanguage
+        let level = progress.profile.level
+        let replaceable = min(3, max(0, drills.count - 1))
+
+        for offset in 0..<replaceable {
+            let slot = drills.count - 1 - offset
+            // L'utilisateur a rattrapé le créneau visé : on s'arrête là.
+            guard slot > index else { break }
+            guard candidates.indices.contains(offset % candidates.count) else { break }
+            let rule = candidates[offset % candidates.count]
+            guard let generated = await ContentGenerator.shared.drill(
+                for: rule, native: native, level: level) else { continue }
+            guard slot > index, drills.indices.contains(slot) else { break }
+            drills[slot] = generated
         }
     }
 
@@ -104,11 +157,18 @@ struct OrthoDrillView: View {
 
     private var progressHeader: some View {
         VStack(spacing: 8) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(L.t("game.round", index + 1, drills.count))
                     .font(Theme.Typography.caption)
                     .foregroundStyle(.white.opacity(0.6))
                     .monospacedDigit()
+                if current?.isGenerated == true {
+                    Chip(text: L.t("ortho.generated"), systemImage: "sparkles", tint: Theme.lavande)
+                } else if isGenerating {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.lavande.opacity(0.6))
+                }
                 Spacer()
                 HStack(spacing: 5) {
                     Image(systemName: "checkmark.circle.fill")
@@ -445,7 +505,9 @@ struct OrthoDrillView: View {
             score = GameScore()
             finished = false
         }
-        loadDrills()
+        // Relance la tâche : nouvelle série, et de nouveaux exercices écrits
+        // par Gemma s'il est disponible.
+        sessionId = UUID()
     }
 
     private var emptyState: some View {

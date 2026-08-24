@@ -9,9 +9,21 @@ import Foundation
 /// générer des manches à l'infini sans écrire une ligne de contenu de plus.
 enum GameSeeds {
 
-    /// Toutes les cartes du parcours, calculées une seule fois.
+    /// Toutes les cartes du parcours, dédoublonnées, calculées une seule fois.
+    ///
+    /// Un mot peut légitimement figurer dans deux leçons — « gare » sert au
+    /// thème de la ville comme à celui du voyage. Le garder deux fois ferait
+    /// poser la même question deux fois dans une série de dix.
     static let vocabPool: [VocabCard] = {
-        LessonTopic.curriculum.flatMap { ContentSeeds.lesson(topic: $0).cards }
+        var seen = Set<String>()
+        var pool: [VocabCard] = []
+        for topic in LessonTopic.curriculum {
+            for card in ContentSeeds.lesson(topic: topic).cards
+            where seen.insert(card.french.lowercased()).inserted {
+                pool.append(card)
+            }
+        }
+        return pool
     }()
 
     /// Les cartes portant au moins un signe diacritique — le vivier de la
@@ -52,7 +64,9 @@ enum GameSeeds {
     // =========================================================================
 
     private static func translationRounds(count: Int, seed: UInt64, kind: GameKind) -> [GameRound] {
-        let picks = sample(vocabPool, count: count, seed: seed) { $0.french }
+        // On tire large : certaines cartes sont écartées faute de leurres
+        // exploitables, et une série de dix doit en compter dix.
+        let picks = sample(vocabPool, count: count * 3, seed: seed) { $0.french }
         return picks.compactMap { card in
             let wrong = distractors(for: card, in: vocabPool, seed: seed) { $0.localizedTranslation }
             guard wrong.count >= 2 else { return nil }
@@ -65,6 +79,8 @@ enum GameSeeds {
                              correctIndex: index,
                              explanation: card.localizedSpellingNote)
         }
+        .prefix(count)
+        .map { $0 }
     }
 
     // =========================================================================
@@ -76,7 +92,7 @@ enum GameSeeds {
         // comme la cible : proposer deux homophones rendrait la manche
         // impossible à gagner à l'oreille, ce qui n'est pas un exercice, c'est
         // un piège.
-        let picks = sample(vocabPool, count: count, seed: seed) { $0.french }
+        let picks = sample(vocabPool, count: count * 3, seed: seed) { $0.french }
         return picks.compactMap { card in
             let wrong = vocabPool
                 .filter { $0.french != card.french && !FrenchPhonology.areHomophones($0.french, card.french) }
@@ -93,6 +109,8 @@ enum GameSeeds {
                              correctIndex: index,
                              explanation: card.localizedTranslation)
         }
+        .prefix(count)
+        .map { $0 }
     }
 
     // =========================================================================
@@ -133,7 +151,7 @@ enum GameSeeds {
     // =========================================================================
 
     private static func accentRounds(count: Int, seed: UInt64) -> [GameRound] {
-        let picks = sample(accentedPool, count: count, seed: seed) { $0.french }
+        let picks = sample(accentedPool, count: count * 3, seed: seed) { $0.french }
         return picks.compactMap { card in
             let variants = accentVariants(of: card.french)
             guard variants.count >= 2 else { return nil }
@@ -146,6 +164,8 @@ enum GameSeeds {
                              correctIndex: index,
                              explanation: card.localizedSpellingNote ?? card.localizedTranslation)
         }
+        .prefix(count)
+        .map { $0 }
     }
 
     /// Fabrique des graphies fautives plausibles : le mot sans ses accents, et
@@ -172,6 +192,28 @@ enum GameSeeds {
             added.replaceSubrange(index...index, with: "é")
             if added != word && !variants.contains(added) { variants.append(added) }
         }
+
+        // Recours : l'accent déplacé sur une autre voyelle. Disponible dès que
+        // le mot compte deux voyelles, et c'est une confusion réelle —
+        // « hôpital » écrit « hopitâl ». Sans lui, un mot dont le seul accent
+        // est un circonflexe sur o n'offrait qu'un leurre, le mot nu, et
+        // sortait du jeu.
+        if variants.count < 2 {
+            let marks = FrenchPhonology.diacriticProfile(word)
+            var bare = Array(FrenchPhonology.stripAccents(word))
+            if let mark = marks.first, bare.count > 1 {
+                let target = bare.indices.first { index in
+                    index != mark.index && FrenchPhonology.vowelLetters.contains(bare[index])
+                }
+                if let target {
+                    bare[target] = mark.mark
+                    let candidate = String(bare)
+                    if candidate != word && !variants.contains(candidate) {
+                        variants.append(candidate)
+                    }
+                }
+            }
+        }
         return variants
     }
 
@@ -186,7 +228,7 @@ enum GameSeeds {
             else { return true }
             return set.level <= level
         }
-        let picks = sample(drills, count: count, seed: seed) { $0.id.uuidString }
+        let picks = sample(drills, count: count * 2, seed: seed) { $0.id.uuidString }
         return picks.compactMap { drill in
             let options = drill.shuffledOptions
             guard options.count >= 2, let index = options.firstIndex(of: drill.answer) else { return nil }
@@ -197,6 +239,8 @@ enum GameSeeds {
                              correctIndex: index,
                              explanation: drill.localizedExplanation)
         }
+        .prefix(count)
+        .map { $0 }
     }
 
     // =========================================================================

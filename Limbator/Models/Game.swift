@@ -116,8 +116,16 @@ struct GameRound: Identifiable, Codable, Hashable {
         self.explanation = explanation
     }
 
-    /// Le round est-il exploitable ? (au moins deux options, une cible non vide)
-    var isPlayable: Bool { options.count >= 2 && !frenchTarget.isEmpty }
+    /// Le round est-il exploitable ?
+    ///
+    /// Une cible vide ne peut rien produire. En revanche **une seule
+    /// proposition suffit** : le studio vocal n'affiche pas de choix, il
+    /// demande de prononcer la cible. Exiger deux propositions ici vidait
+    /// silencieusement ce jeu de toutes ses manches.
+    var isPlayable: Bool { !frenchTarget.isEmpty && !options.isEmpty }
+
+    /// Le round convient-il à un questionnaire à choix multiple ?
+    var isQuizPlayable: Bool { isPlayable && options.count >= 2 }
 
     var correctAnswer: String {
         options.indices.contains(correctIndex) ? options[correctIndex] : ""

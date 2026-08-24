@@ -166,6 +166,8 @@ STRINGS = {
     "ortho.again":        ("Încă o serie", "Encore une série", "Another round"),
     "ortho.choose_level": ("Alege dificultatea", "Choisis la difficulté", "Choose difficulty"),
     "ortho.no_drills":    ("Niciun exercițiu pentru acest modul deocamdată.", "Aucun exercice pour ce module pour l'instant.", "No exercises for this module yet."),
+    "ortho.generated":    ("Scris de Gemma", "Écrit par Gemma", "Written by Gemma"),
+    "ortho.generating":   ("Gemma scrie exerciții noi…", "Gemma écrit de nouveaux exercices…", "Gemma is writing new exercises…"),
 
     # ---- Jeux --------------------------------------------------------------
     "games.title":     ("Jocuri", "Jeux", "Games"),

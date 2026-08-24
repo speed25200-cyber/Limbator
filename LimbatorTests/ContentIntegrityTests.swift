@@ -319,6 +319,52 @@ final class ContentIntegrityTests: XCTestCase {
         }
     }
 
+    func testEveryGameReceivesRoundsThroughTheGenerator() {
+        // Le générateur filtre les manches inexploitables. Un filtre trop
+        // strict viderait un jeu entier en silence : l'écran resterait sur son
+        // indicateur de chargement, sans erreur nulle part.
+        for kind in GameKind.allCases where kind != .dictation {
+            let rounds = ContentGenerator.shared.gameRounds(kind: kind, level: .b2, count: 8)
+            XCTAssertFalse(rounds.isEmpty,
+                           "le générateur ne rend aucune manche pour \(kind.rawValue)")
+        }
+        // Le studio vocal n'affiche pas de propositions : une seule suffit.
+        let speaking = ContentGenerator.shared.gameRounds(kind: .speaking, level: .a1, count: 5)
+        XCTAssertEqual(speaking.count, 5)
+        XCTAssertTrue(speaking.allSatisfy { $0.options.count == 1 })
+        XCTAssertTrue(speaking.allSatisfy { !$0.isQuizPlayable })
+    }
+
+    func testRequestedRoundCountIsHonoured() {
+        // Les garde-fous écartent des tirages — un mot sans leurre exploitable,
+        // un exercice sans proposition. Le générateur tire donc large : une
+        // série de dix doit en compter dix, pas sept.
+        //
+        // `storyChoice` fait exception, et c'est assumé : il n'existe que cinq
+        // embranchements dans les récits vérifiés.
+        for kind in [GameKind.match, .listening, .accentHunt, .homophoneDuel,
+                     .speaking, .wordPuzzle] {
+            let rounds = ContentGenerator.shared.gameRounds(kind: kind, level: .c1, count: 10)
+            XCTAssertEqual(rounds.count, 10,
+                           "\(kind.rawValue) rend \(rounds.count) manches au lieu de 10")
+        }
+    }
+
+    func testVocabularyPoolHasNoDuplicates() {
+        let words = GameSeeds.vocabPool.map { $0.french.lowercased() }
+        XCTAssertEqual(Set(words).count, words.count,
+                       "un mot présent deux fois serait demandé deux fois dans une série")
+    }
+
+    func testEveryAccentedWordYieldsEnoughDecoys() {
+        // Un mot accentué qui n'offre qu'un leurre sort du jeu en silence.
+        for card in GameSeeds.accentedPool {
+            XCTAssertGreaterThanOrEqual(
+                GameSeeds.accentVariants(of: card.french).count, 2,
+                "« \(card.french) » n'offre pas assez de graphies fautives plausibles")
+        }
+    }
+
     func testListeningRoundsNeverOfferHomophones() {
         // Deux homophones en propositions rendraient la manche impossible à
         // gagner à l'oreille : ce n'est pas un exercice, c'est un piège.

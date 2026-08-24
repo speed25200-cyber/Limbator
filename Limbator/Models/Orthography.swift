@@ -183,6 +183,13 @@ struct OrthoDrill: Identifiable, Codable, Hashable {
     let distractors: [String]
     /// Explication après réponse, source roumaine.
     let explanation: String
+    /// L'exercice a-t-il été écrit par Gemma ?
+    ///
+    /// L'interface le signale. Ce n'est pas une coquetterie : l'apprenant a le
+    /// droit de savoir ce qui vient d'un contenu vérifié et ce qui vient d'un
+    /// modèle — même quand, comme ici, la bonne réponse reste juste par
+    /// construction.
+    let isGenerated: Bool
 
     enum Kind: String, Codable, CaseIterable {
         case choice       // QCM : choisir la bonne graphie
@@ -193,11 +200,13 @@ struct OrthoDrill: Identifiable, Codable, Hashable {
 
     init(id: UUID = .init(), ruleId: String, module: OrthoModule, kind: Kind,
          instruction: String, sentence: String, answer: String,
-         distractors: [String] = [], explanation: String) {
+         distractors: [String] = [], explanation: String,
+         isGenerated: Bool = false) {
         self.id = id; self.ruleId = ruleId; self.module = module; self.kind = kind
         self.instruction = instruction; self.sentence = sentence
         self.answer = answer; self.distractors = distractors
         self.explanation = explanation
+        self.isGenerated = isGenerated
     }
 
     var localizedInstruction: String { ContentL10n.s(instruction) }

@@ -52,8 +52,9 @@ struct QuizGameView: View {
     private func load() {
         guard rounds.isEmpty else { return }
         let seed = UInt64(abs(Int(Date().timeIntervalSince1970) / 300))
-        rounds = ContentGenerator.shared.gameRounds(
-            kind: kind, level: progress.profile.level, count: roundCount, seed: seed)
+        rounds = ContentGenerator.shared
+            .gameRounds(kind: kind, level: progress.profile.level, count: roundCount, seed: seed)
+            .filter(\.isQuizPlayable)
         if kind == .listening, let first = rounds.first {
             Task {
                 try? await Task.sleep(nanoseconds: 500_000_000)

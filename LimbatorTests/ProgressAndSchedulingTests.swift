@@ -212,6 +212,46 @@ final class ProgressAndSchedulingTests: XCTestCase {
         XCTAssertTrue(rounds.allSatisfy(\.isPlayable))
     }
 
+    func testGeneratedSentenceValidationIsStrict() {
+        let generator = ContentGenerator.shared
+
+        // La forme visée doit être là, une seule fois, comme MOT ENTIER.
+        XCTAssertTrue(generator.carries("Il a un chien noir chez lui.",
+                                        target: "a", forbidding: ["à"]))
+        // « a » figure aussi dans « chat », mais pas comme mot : la recherche
+        // par sous-chaîne se tromperait, pas la nôtre.
+        XCTAssertTrue(generator.carries("Le chat a mangé toute la pâtée.",
+                                        target: "a", forbidding: ["à"]))
+        // Une forme concurrente rendrait l'exercice ambigu : deux bonnes
+        // réponses possibles selon l'emplacement du trou.
+        XCTAssertFalse(generator.carries("Il a donné le livre à Marie.",
+                                         target: "a", forbidding: ["à"]))
+        // Deux occurrences : on ne saurait pas quelle occurrence creuser.
+        XCTAssertFalse(generator.carries("Il a un chien et elle a un chat.",
+                                         target: "a", forbidding: ["à"]))
+        // Absente.
+        XCTAssertFalse(generator.carries("Elle part demain matin très tôt.",
+                                         target: "a", forbidding: ["à"]))
+        // Trop courte, sans ponctuation finale, ou porteuse de restes de JSON.
+        XCTAssertFalse(generator.carries("Il a faim.", target: "a", forbidding: ["à"]))
+        XCTAssertFalse(generator.carries("Il a un chien noir chez lui",
+                                         target: "a", forbidding: ["à"]))
+        XCTAssertFalse(generator.carries("Il a un chien noir chez lui.\"}",
+                                         target: "a", forbidding: ["à"]))
+    }
+
+    func testGapCarvesTheWholeWordOnly() {
+        // Creuser « a » dans « Il a un chat » ne doit pas toucher le « a » de
+        // « chat » : le trou serait au mauvais endroit et la phrase illisible.
+        XCTAssertEqual(OrthoDrills.gap("a", in: "Il a un chat."), "Il ___ un chat.")
+        XCTAssertEqual(OrthoDrills.gap("à", in: "Il va à Paris."), "Il va ___ Paris.")
+        // La ponctuation attachée au mot est conservée.
+        XCTAssertEqual(OrthoDrills.gap("là", in: "Reste là, s'il te plaît."),
+                       "Reste ___, s'il te plaît.")
+        // Mot absent : rien à creuser.
+        XCTAssertNil(OrthoDrills.gap("où", in: "Il part demain."))
+    }
+
     // =========================================================================
     // MARK: - Épellation
     // =========================================================================

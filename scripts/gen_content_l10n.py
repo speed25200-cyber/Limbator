@@ -318,6 +318,7 @@ add({
 
 # ---- Voix ------------------------------------------------------------------
 add({
+ "Alege grafia corectă.": ("Choisis la bonne graphie.", "Choose the correct spelling."),
  "Feminină": ("Féminine", "Feminine"),
  "Masculină": ("Masculine", "Masculine"),
 })

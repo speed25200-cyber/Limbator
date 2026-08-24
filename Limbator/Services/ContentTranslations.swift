@@ -327,6 +327,7 @@ enum ContentL10n {
         "«ne» + «y»": ("« ne » + « y »", "“ne” + “y”"),
         "substantiv feminin (sfârșit) sau adjectiv (fin)": ("nom féminin (la fin) ou adjectif (fin)", "feminine noun (end) or adjective (fine)"),
         "substantiv feminin (foame)": ("nom féminin (la faim)", "feminine noun (hunger)"),
+        "Alege grafia corectă.": ("Choisis la bonne graphie.", "Choose the correct spelling."),
         "Feminină": ("Féminine", "Feminine"),
         "Masculină": ("Masculine", "Masculine"),
     ]

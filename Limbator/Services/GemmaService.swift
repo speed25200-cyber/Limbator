@@ -169,12 +169,11 @@ final class GemmaService: ObservableObject {
         // renonce pour cette session : l'app reste parfaitement utilisable hors
         // ligne, et le lancement d'après retentera à zéro.
         let defaults = UserDefaults.standard
-        if defaults.string(forKey: Self.crashBreadcrumbKey) != nil {
+        if hasBreadcrumb {
             let deaths = defaults.integer(forKey: Self.crashCountKey) + 1
             defaults.set(deaths, forKey: Self.crashCountKey)
             if deaths >= 3 {
-                defaults.removeObject(forKey: Self.crashBreadcrumbKey)
-                defaults.set(0, forKey: Self.crashCountKey)
+                clearBreadcrumb(resetCount: true)
                 lastError = L.t("gemma.error.repeated_failure")
                 statusMessage = L.t("gemma.status.offline")
                 loadFailed = true
@@ -208,7 +207,7 @@ final class GemmaService: ObservableObject {
         } catch {
             // Erreur Swift propre (pas une mort du processus) : on retire la
             // trace pour ne pas la confondre avec un plantage natif.
-            defaults.removeObject(forKey: Self.crashBreadcrumbKey)
+            clearBreadcrumb()
             lastError = "\(variant.label) — \(error.localizedDescription)"
             statusMessage = L.t("gemma.status.offline")
             loadFailed = true
@@ -224,16 +223,47 @@ final class GemmaService: ObservableObject {
 
     /// Nouvelle tentative explicite (bouton des réglages) : on réarme tout.
     func retryLoad() async {
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: Self.crashBreadcrumbKey)
-        defaults.set(0, forKey: Self.crashCountKey)
+        clearBreadcrumb(resetCount: true)
         loadFailed = false
         isReady = false
         await warmUp()
     }
 
-    private static let crashBreadcrumbKey = "limb.gemma.loadBreadcrumb.v1"
+    // =========================================================================
+    // MARK: - Trace de plantage
+    // =========================================================================
+    //
+    // La trace doit survivre à une **mort du processus** : c'est toute sa
+    // raison d'être. `UserDefaults` écrit sur disque quand il le décide, et
+    // l'app peut être tuée dans la seconde qui suit la pose de la trace — les
+    // allocations Metal échouent parfois d'emblée. Une trace perdue, c'est le
+    // coupe-circuit qui ne se déclenche jamais et l'app qui meurt au lancement
+    // indéfiniment. On écrit donc un fichier, de façon atomique et synchrone.
+
+    private static let breadcrumbFileName = "gemma-loading.breadcrumb"
     private static let crashCountKey      = "limb.gemma.loadCrashCount.v1"
+
+    private var breadcrumbURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent(Self.breadcrumbFileName)
+    }
+
+    private var hasBreadcrumb: Bool {
+        FileManager.default.fileExists(atPath: breadcrumbURL.path)
+    }
+
+    private func placeBreadcrumb() {
+        // `.atomic` force l'écriture avant le retour : c'est exactement la
+        // garantie qui manquait.
+        try? Data("loading".utf8).write(to: breadcrumbURL, options: .atomic)
+    }
+
+    private func clearBreadcrumb(resetCount: Bool = false) {
+        try? FileManager.default.removeItem(at: breadcrumbURL)
+        if resetCount { UserDefaults.standard.set(0, forKey: Self.crashCountKey) }
+    }
 
     private func loadModel(progress: @Sendable @escaping (Double, String) -> Void) async throws {
         #if LIMB_MLX_REAL
@@ -281,7 +311,7 @@ final class GemmaService: ObservableObject {
 
         // 4) Trace posée juste avant l'étape risquée (projection mémoire de
         //    plusieurs gigaoctets + allocations Metal).
-        UserDefaults.standard.set("loading", forKey: Self.crashBreadcrumbKey)
+        placeBreadcrumb()
 
         progress(0.98, L.t("gemma.status.loading"))
         let modelDir = modelDirectory
@@ -295,8 +325,7 @@ final class GemmaService: ObservableObject {
         }.value
 
         container = loaded
-        UserDefaults.standard.removeObject(forKey: Self.crashBreadcrumbKey)
-        UserDefaults.standard.set(0, forKey: Self.crashCountKey)
+        clearBreadcrumb(resetCount: true)
         progress(1.0, L.t("gemma.status.ready"))
         #else
         // Aperçus SwiftUI, simulateur, intégration continue.

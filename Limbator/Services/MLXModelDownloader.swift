@@ -156,15 +156,25 @@ final class MLXModelDownloader: ObservableObject {
             guard !files.isEmpty else { state = .error(L.t("download.error.empty")); return }
 
             bytesTotal = files.reduce(0) { $0 + $1.size }
-            bytesDownloaded = 0
-            for file in files where await isValid(file, in: directory) {
-                bytesDownloaded += file.size
+
+            // Vérifier un fichier veut dire le hacher entièrement. La première
+            // version le faisait deux fois par fichier — une fois pour le
+            // décompte, une fois pour décider quoi retélécharger — soit cinq
+            // gigaoctets de SHA-256 à chaque reprise d'un téléchargement
+            // interrompu. On ne le calcule plus qu'une fois.
+            var alreadyPresent: [String: Bool] = [:]
+            for file in files {
+                if Task.isCancelled { return }
+                alreadyPresent[file.name] = await isValid(file, in: directory)
             }
+            bytesDownloaded = files
+                .filter { alreadyPresent[$0.name] == true }
+                .reduce(0) { $0 + $1.size }
             overallProgress = Double(bytesDownloaded) / Double(max(bytesTotal, 1))
 
             for file in files {
                 if Task.isCancelled { return }
-                if await isValid(file, in: directory) { continue }
+                if alreadyPresent[file.name] == true { continue }
                 try await download(file, into: directory)
                 state = .verifying(filename: file.name)
                 if !file.sha256.isEmpty {

@@ -122,6 +122,10 @@ final class TTSService: NSObject, ObservableObject {
     private let cache = AudioCache()
     private var neuralVoices: [NeuralVoiceEngine.Voice: NeuralVoiceEngine] = [:]
     private var speechContinuation: CheckedContinuation<Void, Never>?
+    /// Numéro de la prise de parole en cours. Il sert à ce qu'une lecture
+    /// interrompue n'éteigne pas l'indicateur allumé par celle qui l'a
+    /// remplacée — voir `speak(_:delivery:)`.
+    private var speechGeneration: UInt64 = 0
 
     override private init() {
         super.init()
@@ -195,8 +199,14 @@ final class TTSService: NSObject, ObservableObject {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return }
 
+        // Un jeton par prise de parole. Sans lui, la lecture qu'on vient
+        // d'interrompre éteignait l'indicateur en se terminant — alors que la
+        // suivante avait déjà commencé, et que l'animation d'écoute
+        // s'arrêtait en plein milieu d'une phrase.
+        speechGeneration &+= 1
+        let generation = speechGeneration
         isSpeaking = true
-        defer { isSpeaking = false }
+        defer { if generation == speechGeneration { isSpeaking = false } }
 
         switch delivery {
         case .natural:
@@ -215,7 +225,10 @@ final class TTSService: NSObject, ObservableObject {
             // supprime les liaisons et laisse entendre les finales muettes —
             // exactement ce qu'un correcteur de dictée veut faire réentendre.
             for word in cleaned.split(separator: " ").map(String.init) {
-                if Task.isCancelled { break }
+                // `cancel()` arrête le lecteur mais n'annule pas cette tâche :
+                // sans le jeton, la fin de la phrase continuait de se dire
+                // par-dessus la lecture qui venait de la remplacer.
+                if Task.isCancelled || generation != speechGeneration { break }
                 await utter(word, rate: max(0.5, playbackRate * 0.8))
                 try? await Task.sleep(nanoseconds: 220_000_000)
             }
@@ -245,16 +258,14 @@ final class TTSService: NSObject, ObservableObject {
         if azureAvailable {
             let voice = gender == .feminine ? AzureTTS.feminineVoice : AzureTTS.masculineVoice
             if let url = await AzureTTS.synthesize(text: text, voice: voice, rate: rate, style: "calm") {
-                cache.store(key: key, url: url)
-                await play(url)
+                await playAndDiscard(temporary: url, key: key)
                 return
             }
             // Repli sur les voix standard : certains abonnements n'ouvrent pas
             // les voix multilingues.
             let fallbackVoice = gender == .feminine ? AzureTTS.feminineFallback : AzureTTS.masculineFallback
             if let url = await AzureTTS.synthesize(text: text, voice: fallbackVoice, rate: rate) {
-                cache.store(key: key, url: url)
-                await play(url)
+                await playAndDiscard(temporary: url, key: key)
                 return
             }
         }
@@ -262,14 +273,26 @@ final class TTSService: NSObject, ObservableObject {
         // 3. VITS embarqué.
         if let engine = neuralVoices[neuralVoice(for: gender)],
            let url = await engine.synthesize(text: text, speed: rate) {
-            cache.store(key: key, url: url)
-            await play(url)
+            await playAndDiscard(temporary: url, key: key)
             return
         }
 
         // 4. Apple. AVSpeechSynthesizer n'expose pas de PCM exploitable sur iOS :
         //    on lit directement, sans mise en cache.
         await speakWithApple(text, rate: rate)
+    }
+
+    /// Range la synthèse, lit la copie rangée, puis efface l'original.
+    ///
+    /// Chaque synthèse écrit un fichier unique dans le dossier temporaire.
+    /// Personne ne les effaçait : une séance de dictée un peu longue en
+    /// accumulait des centaines, dupliqués dans le cache par-dessus le marché.
+    private func playAndDiscard(temporary url: URL, key: String) async {
+        let stored = cache.store(key: key, url: url)
+        await play(stored ?? url)
+        if stored != nil {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func speakWithApple(_ text: String, rate: Float) async {
@@ -343,6 +366,7 @@ final class TTSService: NSObject, ObservableObject {
     }
 
     func cancel() {
+        speechGeneration &+= 1
         synthesizer.stopSpeaking(at: .immediate)
         audioPlayer?.stop()
         audioPlayer = nil
@@ -443,7 +467,12 @@ final class AudioCache {
         return url
     }
 
-    func store(key: String, url: URL) {
+    /// Range une synthèse et rend le fichier conservé, ou `nil` si la copie a
+    /// échoué. L'appelant s'en sert pour lire la copie et effacer l'original :
+    /// sans cela, chaque phrase prononcée laissait un WAV de plus dans le
+    /// dossier temporaire, pour toute la durée de vie de l'application.
+    @discardableResult
+    func store(key: String, url: URL) -> URL? {
         let target = directory.appendingPathComponent("\(key).wav")
         do {
             if FileManager.default.fileExists(atPath: target.path) {
@@ -451,8 +480,10 @@ final class AudioCache {
             }
             try FileManager.default.copyItem(at: url, to: target)
             evictIfNeeded()
+            return target
         } catch {
             log.error("Mise en cache impossible : \(error.localizedDescription)")
+            return nil
         }
     }
 

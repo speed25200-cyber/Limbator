@@ -182,10 +182,10 @@ struct LessonDetailView: View {
                 EmptyView()
             } else {
                 TabView(selection: $cardIndex) {
-                    ForEach(Array(content.cards.enumerated()), id: \.element.id) { index, card in
-                        VocabCardView(card: card, accent: topic.accent)
+                    ForEach(Array(content.cards.enumerated()), id: \.element.id) { entry in
+                        VocabCardView(card: entry.element, accent: topic.accent)
                             .padding(.horizontal, 2)
-                            .tag(index)
+                            .tag(entry.offset)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))

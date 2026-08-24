@@ -92,21 +92,22 @@ struct WheelGameView: View {
 
     private var wheel: some View {
         ZStack {
-            ForEach(Array(modules.enumerated()), id: \.element) { position, module in
-                WheelSlice(startAngle: .degrees(Double(position) * slice - 90),
-                           endAngle: .degrees(Double(position + 1) * slice - 90))
-                    .fill(LinearGradient(colors: [module.color, module.color.opacity(0.55)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(
-                        WheelSlice(startAngle: .degrees(Double(position) * slice - 90),
-                                   endAngle: .degrees(Double(position + 1) * slice - 90))
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1))
+            ForEach(Array(modules.enumerated()), id: \.element) { entry in
+                let start = Angle.degrees(Double(entry.offset) * slice - 90)
+                let end = Angle.degrees(Double(entry.offset + 1) * slice - 90)
 
-                Image(systemName: module.iconName)
+                WheelSlice(startAngle: start, endAngle: end)
+                    .fill(LinearGradient(colors: [entry.element.color,
+                                                  entry.element.color.opacity(0.55)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .overlay(WheelSlice(startAngle: start, endAngle: end)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1))
+
+                Image(systemName: entry.element.iconName)
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
                     .offset(y: -100)
-                    .rotationEffect(.degrees(Double(position) * slice + slice / 2))
+                    .rotationEffect(.degrees(Double(entry.offset) * slice + slice / 2))
             }
         }
         .clipShape(Circle())

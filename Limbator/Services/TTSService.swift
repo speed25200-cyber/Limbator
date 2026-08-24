@@ -261,7 +261,12 @@ final class TTSService: NSObject, ObservableObject {
         // On attend la fin par le délégué plutôt qu'en interrogeant
         // `isSpeaking` en boucle : la boucle rate les énoncés très courts —
         // typiquement une seule lettre en mode épellation.
+        //
+        // Garde-fou : si une attente précédente n'a pas été relâchée, on la
+        // relâche ici. Une continuation abandonnée bloquerait sa tâche pour
+        // toujours, et l'utilisateur verrait le bouton figé sur « en cours ».
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            finishSpeechContinuation()
             speechContinuation = continuation
             synthesizer.speak(utterance)
         }

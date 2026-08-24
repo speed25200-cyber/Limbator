@@ -44,7 +44,7 @@ final class ContentGenerator: ObservableObject {
         var authoritative: [String: VocabCard] = [:]
         for card in seed.cards { authoritative[normalize(card.french)] = card }
         let wordList = seed.cards.enumerated()
-            .map { index, card in "\(index + 1). \(card.french) = \(card.localizedTranslation)" }
+            .map { entry in "\(entry.offset + 1). \(entry.element.french) = \(entry.element.localizedTranslation)" }
             .joined(separator: "\n")
 
         let system = """

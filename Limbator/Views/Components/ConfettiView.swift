@@ -25,25 +25,18 @@ struct ConfettiView: View {
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-                Canvas { context, _ in
-                    let now = timeline.date
-                    for particle in particles {
-                        let age = now.timeIntervalSince(particle.birth)
-                        let life = age / 1.7
-                        if life > 1 { continue }
-                        let x = particle.x + particle.vx * CGFloat(age) * 210
-                        // Le terme quadratique est la gravité : sans lui les
-                        // confettis flotteraient au lieu de retomber.
-                        let y = particle.y + particle.vy * CGFloat(age) * 210
-                            + CGFloat(age * age) * 360
-                        var layer = context
-                        layer.translateBy(x: x, y: y)
-                        layer.rotate(by: .radians(particle.rotation + particle.spin * age))
-                        layer.opacity = max(0, 1 - life)
-                        let rect = CGRect(x: -particle.size / 2, y: -particle.size / 4,
-                                          width: particle.size, height: particle.size / 2)
-                        layer.fill(Path(rect), with: .color(particle.color))
+            // La boucle d'animation ne tourne que s'il y a quelque chose à
+            // dessiner. Sans cette garde, chaque écran portant des confettis —
+            // quiz, exercices, dictée — redessinait un canevas vide soixante
+            // fois par seconde, en permanence.
+            Group {
+                if particles.isEmpty {
+                    Color.clear
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
+                        Canvas { context, _ in
+                            draw(in: &context, at: timeline.date)
+                        }
                     }
                 }
             }
@@ -52,6 +45,26 @@ struct ConfettiView: View {
         }
         .onChange(of: trigger) { _, _ in burst() }
         .allowsHitTesting(false)
+    }
+
+    private func draw(in context: inout GraphicsContext, at now: Date) {
+        for particle in particles {
+            let age = now.timeIntervalSince(particle.birth)
+            let life = age / 1.7
+            if life > 1 { continue }
+            let x = particle.x + particle.vx * CGFloat(age) * 210
+            // Le terme quadratique est la gravité : sans lui les confettis
+            // flotteraient au lieu de retomber.
+            let y = particle.y + particle.vy * CGFloat(age) * 210
+                + CGFloat(age * age) * 360
+            var layer = context
+            layer.translateBy(x: x, y: y)
+            layer.rotate(by: .radians(particle.rotation + particle.spin * age))
+            layer.opacity = max(0, 1 - life)
+            let rect = CGRect(x: -particle.size / 2, y: -particle.size / 4,
+                              width: particle.size, height: particle.size / 2)
+            layer.fill(Path(rect), with: .color(particle.color))
+        }
     }
 
     private func burst() {

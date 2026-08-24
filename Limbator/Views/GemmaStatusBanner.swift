@@ -82,12 +82,11 @@ struct GemmaStatusBanner: View {
     }
 
     private var transferDetail: String {
-        func megabytes(_ bytes: Int64) -> String {
-            String(format: "%.0f", Double(bytes) / 1_048_576)
-        }
+        let done = String(format: "%.0f", Double(downloader.bytesDownloaded) / 1_048_576)
+        let total = Units.megabytes(downloader.bytesTotal)
         let speed = downloader.currentSpeedBytesPerSec > 0
-            ? " · \(megabytes(downloader.currentSpeedBytesPerSec)) Mo/s"
+            ? " · " + Units.megabytesPerSecond(downloader.currentSpeedBytesPerSec)
             : ""
-        return "\(megabytes(downloader.bytesDownloaded)) / \(megabytes(downloader.bytesTotal)) Mo\(speed)"
+        return "\(done) / \(total)\(speed)"
     }
 }

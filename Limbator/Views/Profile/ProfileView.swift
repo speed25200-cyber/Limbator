@@ -515,11 +515,7 @@ struct ProfileView: View {
     }
 
     private var cacheSize: String {
-        // « Mo » est l'abréviation française ; le roumain et l'anglais écrivent
-        // « MB ». Une seule forme pour les trois affichait une unité étrangère
-        // à deux lecteurs sur trois.
-        let unit = L.lang == "fr" ? "Mo" : "MB"
-        let megabytes = Double(tts.audioCacheBytes) / 1_048_576
-        return megabytes < 1 ? "< 1 \(unit)" : String(format: "%.0f \(unit)", megabytes)
+        let bytes = tts.audioCacheBytes
+        return bytes < 1_048_576 ? "< 1 " + Units.megabyte : Units.megabytes(bytes)
     }
 }

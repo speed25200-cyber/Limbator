@@ -235,4 +235,41 @@ final class OrthographyEngineTests: XCTestCase {
         XCTAssertFalse(OrthographyEngine.isAcceptable(expected: "élève", written: "eleve"))
         XCTAssertFalse(OrthographyEngine.isAcceptable(expected: "français", written: "francais"))
     }
+    // =========================================================================
+    // MARK: - Rangée d'accents
+    // =========================================================================
+
+    func testAccentIsInsertedAtTheCaretNotAtTheEnd() {
+        // Le défaut que ce code remplace : « é » atterrissait toujours en fin
+        // de texte, ce qui obligeait à réécrire le mot pour corriger un accent.
+        let (text, caret) = "etait".inserting("é", at: NSRange(location: 0, length: 1))
+        XCTAssertEqual(text, "était")
+        XCTAssertEqual(caret, NSRange(location: 1, length: 0))
+    }
+
+    func testAccentReplacesTheSelection() {
+        let (text, caret) = "cafe".inserting("é", at: NSRange(location: 3, length: 1))
+        XCTAssertEqual(text, "café")
+        XCTAssertEqual(caret, NSRange(location: 4, length: 0))
+    }
+
+    func testInsertionSurvivesAnOutOfBoundsCaret() {
+        // Le curseur vient de UIKit et le texte de SwiftUI : rien ne garantit
+        // qu'ils soient synchronisés à l'instant de l'insertion.
+        let (text, caret) = "à".inserting("ç", at: NSRange(location: 99, length: 40))
+        XCTAssertEqual(text, "àç")
+        XCTAssertEqual(caret.location, 2)
+        XCTAssertEqual(caret.length, 0)
+    }
+
+    func testInsertionCountsInUTF16LikeUIKit() {
+        // « œ » tient sur une unité UTF-16, mais le raisonnement doit rester
+        // celui de UIKit : les positions sont des unités UTF-16, pas des
+        // caractères Swift.
+        let start = "sur" as NSString
+        let (text, caret) = "sur".inserting("œ", at: NSRange(location: start.length, length: 0))
+        XCTAssertEqual(text, "surœ")
+        XCTAssertEqual(caret.location, (text as NSString).length)
+    }
+
 }

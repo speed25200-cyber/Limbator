@@ -74,7 +74,28 @@ final class TTSService: NSObject, ObservableObject {
     /// Un utilisateur qui trouve la voix médiocre doit pouvoir savoir pourquoi.
     @Published private(set) var engineDiagnostic: String = ""
 
-    @Published var playbackRate: Float = 1.0
+    /// La vitesse de lecture choisie par l'utilisateur.
+    ///
+    /// Elle se conserve d'un lancement à l'autre, comme le timbre et le refus
+    /// du réseau. Ralentir la voix n'est pas un caprice : c'est souvent la
+    /// seule façon d'entendre une finale muette ou une liaison, et redemander
+    /// ce réglage à chaque ouverture le rendait inutilisable.
+    @Published var playbackRate: Float = {
+        // `float(forKey:)` rend 0 quand la clé n'existe pas, ce qui muselait la
+        // voix au premier lancement : on teste donc la présence d'abord.
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "limb.tts.rate") != nil else { return 1.0 }
+        return min(1.5, max(0.5, defaults.float(forKey: "limb.tts.rate")))
+    }() {
+        didSet {
+            let clamped = min(1.5, max(0.5, playbackRate))
+            if clamped != playbackRate {
+                playbackRate = clamped
+                return
+            }
+            UserDefaults.standard.set(clamped, forKey: "limb.tts.rate")
+        }
+    }
     @Published var gender: Gender = {
         let stored = UserDefaults.standard.string(forKey: "limb.tts.gender") ?? ""
         return Gender(rawValue: stored) ?? .feminine

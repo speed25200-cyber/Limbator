@@ -18,7 +18,14 @@ struct DictationView: View {
     @State private var showTranslation = false
     @State private var showHint = false
     @State private var confetti = 0
-    @FocusState private var editorFocused: Bool
+    /// Le point d'insertion dans la copie. Il vient de UIKit, donc en unités
+    /// UTF-16 : c'est lui qui permet à la rangée d'accents d'écrire là où se
+    /// trouve le curseur plutôt qu'à la fin du texte.
+    @State private var selection = NSRange(location: 0, length: 0)
+    @State private var editing = false
+    /// La relecture différée après « recommencer » : retenue pour être annulée
+    /// si l'écran disparaît entre-temps.
+    @State private var speechTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -43,9 +50,17 @@ struct DictationView: View {
             // Première écoute automatique : l'utilisateur a choisi une dictée,
             // il n'a pas besoin d'un second appui pour l'entendre.
             try? await Task.sleep(nanoseconds: 400_000_000)
+            // `try?` avale l'annulation : sans cette garde, quitter l'écran
+            // pendant l'attente laissait la phrase se lire par-dessus la vue
+            // suivante — `onDisappear` a déjà coupé la voix à ce moment-là.
+            guard !Task.isCancelled else { return }
             await tts.speak(item.text)
         }
-        .onDisappear { tts.cancel() }
+        .onDisappear {
+            speechTask?.cancel()
+            speechTask = nil
+            tts.cancel()
+        }
     }
 
     // =========================================================================
@@ -104,30 +119,25 @@ struct DictationView: View {
             // La saisie doit rester brute : la correction automatique d'iOS
             // remplacerait les fautes que l'exercice cherche justement à
             // révéler, et la majuscule automatique fausserait le résultat.
-            TextEditor(text: $written)
-                .focused($editorFocused)
-                .font(Theme.Typography.orthoSmall)
-                .foregroundStyle(.white)
-                .scrollContentBackground(.hidden)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
+            OrthoTextEditor(text: $written, selection: $selection, isEditing: $editing)
                 .frame(minHeight: 130)
-                .padding(12)
+                .padding(4)
                 .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Theme.glass))
                 .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(editorFocused ? Theme.bleuFrance : Theme.glassEdge,
-                            lineWidth: editorFocused ? 1.6 : 1))
+                    .stroke(editing ? Theme.bleuFrance : Theme.glassEdge,
+                            lineWidth: editing ? 1.6 : 1))
                 .overlay(alignment: .topLeading) {
                     if written.isEmpty {
                         Text(L.t("ortho.type_here"))
                             .font(Theme.Typography.orthoSmall)
                             .foregroundStyle(.white.opacity(0.32))
                             .padding(.horizontal, 17)
-                            .padding(.vertical, 20)
+                            .padding(.vertical, 17)
                             .allowsHitTesting(false)
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: editing)
 
             AccentKeyboardRow { character in insert(character) }
 
@@ -162,13 +172,24 @@ struct DictationView: View {
         }
     }
 
+    /// Écrit un caractère accentué **au point d'insertion**, pas à la fin.
+    ///
+    /// Corriger « etait » en « était » se fait ainsi en posant le curseur après
+    /// le « e » et en touchant « é » ; la version précédente ajoutait à la fin
+    /// et obligeait à réécrire le mot.
     private func insert(_ character: String) {
-        written.append(character)
+        let result = written.inserting(character, at: selection)
+        written = result.text
+        selection = result.caret
+        // Toucher un accent avant d'avoir touché le champ doit aussi ouvrir le
+        // clavier : sinon la lettre part au début du texte sans que rien ne
+        // signale où elle vient d'atterrir.
+        editing = true
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
     private func submit() {
-        editorFocused = false
+        editing = false
         tts.cancel()
         let result = OrthographyEngine.evaluate(expected: item.text, written: written)
         withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { verdict = result }
@@ -266,9 +287,12 @@ struct DictationView: View {
             written = ""
             showTranslation = false
             showHint = false
+            selection = NSRange(location: 0, length: 0)
         }
-        Task {
+        speechTask?.cancel()
+        speechTask = Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
             await tts.speak(item.text)
         }
     }

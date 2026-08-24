@@ -49,6 +49,15 @@ struct RootView: View {
                     // devant un écran de chargement pendant que le modèle se
                     // télécharge en arrière-plan.
                     MainTabView()
+                        // `L.t` est une fonction statique : changer de langue
+                        // ne prévient personne. Les écrans qui observent le
+                        // profil se redessinent, mais pas la barre d'onglets
+                        // ni les accueils qui n'en dépendent pas — leurs
+                        // libellés restaient dans l'ancienne langue jusqu'au
+                        // relancement. Rattacher l'identité de la vue à la
+                        // langue reconstruit tout le moment venu ; l'onglet
+                        // courant, lui, vit dans `AppState` et survit.
+                        .id(progress.profile.nativeLanguageId)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 } else {
                     OnboardingView()

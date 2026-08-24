@@ -123,6 +123,19 @@ struct Story: Identifiable, Codable, Hashable {
             ?? chapters.first
             ?? StoryChapter(index: 1, titleNative: "—", titleFrench: "—", iconName: "book.fill")
     }
+
+    /// Le chapitre suivant celui-ci, s'il existe.
+    ///
+    /// On avance par **numéro déclaré**, jamais par nombre de chapitres : un
+    /// récit dont les chapitres ne seraient pas numérotés 1, 2, 3… laissait la
+    /// lecture bloquée avant la fin, ou proposait un chapitre inexistant.
+    func chapterIndex(after index: Int) -> Int? {
+        chapters.map(\.index).filter { $0 > index }.min()
+    }
+
+    func chapterIndex(before index: Int) -> Int? {
+        chapters.map(\.index).filter { $0 < index }.max()
+    }
 }
 
 struct StoryChapter: Identifiable, Codable, Hashable {

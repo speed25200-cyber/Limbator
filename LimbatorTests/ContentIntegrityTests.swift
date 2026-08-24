@@ -269,6 +269,34 @@ final class ContentIntegrityTests: XCTestCase {
         }
     }
 
+    func testChapterChainVisitsEveryChapterOnce() {
+        // La lecture avance de chapitre en chapitre par leur numéro déclaré.
+        // La chaîne doit passer par tous, une fois chacun, et s'arrêter — un
+        // cycle bloquerait le lecteur, un arrêt prématuré lui cacherait la fin.
+        for story in Story.builtIn {
+            guard let first = story.chapters.map(\.index).min() else {
+                XCTFail("récit \(story.slug) sans chapitre"); continue
+            }
+            var visited = [first]
+            var cursor = first
+            while let next = story.chapterIndex(after: cursor) {
+                XCTAssertFalse(visited.contains(next), "\(story.slug) : cycle sur \(next)")
+                visited.append(next)
+                cursor = next
+                if visited.count > story.chapters.count { break }
+            }
+            XCTAssertEqual(visited.count, story.chapters.count,
+                           "\(story.slug) : la lecture n'atteint que \(visited.count) "
+                           + "chapitres sur \(story.chapters.count)")
+            XCTAssertNil(story.chapterIndex(before: first),
+                         "\(story.slug) : un chapitre précède le premier")
+            // Le retour en arrière refait exactement le chemin inverse.
+            for (position, index) in visited.enumerated() where position > 0 {
+                XCTAssertEqual(story.chapterIndex(before: index), visited[position - 1])
+            }
+        }
+    }
+
     func testStoryLookupIsSafe() {
         XCTAssertEqual(Story.story(slug: "brancusi").slug, "brancusi")
         XCTAssertFalse(Story.story(slug: "inconnu").slug.isEmpty)

@@ -19,6 +19,11 @@ struct StoryReaderView: View {
     @State private var showTranslation = false
     @State private var selectedWord: HighlightedWord?
     @State private var chosenBranch: String?
+    /// Vrai quand on revient en arrière d'un chapitre : il faut alors atterrir
+    /// sur sa **dernière** scène. Sans ce drapeau, « précédent » depuis la
+    /// première scène du chapitre 2 renvoyait au tout début du chapitre 1 —
+    /// on ne pouvait pas relire la scène qu'on venait de quitter.
+    @State private var landOnLastScene = false
 
     private var chapter: StoryChapter { story.chapter(chapterIndex) }
     private var scene: StoryScene? {
@@ -64,8 +69,11 @@ struct StoryReaderView: View {
     private func loadChapter() async {
         // Les scènes vérifiées s'affichent tout de suite ; Gemma peut ensuite
         // proposer sa version, jamais l'inverse.
-        scenes = StorySeeds.scenes(story: story, chapter: chapter)
-        sceneIndex = 0
+        let requested = chapterIndex
+        let verified = StorySeeds.scenes(story: story, chapter: chapter)
+        scenes = verified
+        sceneIndex = landOnLastScene ? max(0, verified.count - 1) : 0
+        landOnLastScene = false
         showTranslation = false
         chosenBranch = nil
 
@@ -74,8 +82,17 @@ struct StoryReaderView: View {
         let level = progress.profile.level
         let generated = await ContentGenerator.shared.storyScenes(
             story: story, chapter: chapter, native: native, level: level)
+
+        // Changer de chapitre pendant que le modèle écrit annule cette tâche,
+        // mais rien ne garantit qu'elle s'arrête avant d'avoir sa réponse :
+        // sans cette garde, les scènes d'un chapitre s'affichaient sous le
+        // titre d'un autre.
+        guard !Task.isCancelled, chapterIndex == requested else { return }
         if generated.count >= 3 {
-            withAnimation(.easeInOut(duration: 0.4)) { scenes = generated }
+            withAnimation(.easeInOut(duration: 0.4)) {
+                scenes = generated
+                sceneIndex = min(sceneIndex, max(0, generated.count - 1))
+            }
         }
     }
 
@@ -276,14 +293,15 @@ struct StoryReaderView: View {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     if sceneIndex > 0 {
                         sceneIndex -= 1
-                    } else if chapterIndex > 1 {
-                        chapterIndex -= 1
+                    } else if let previous = previousChapterIndex {
+                        landOnLastScene = true
+                        chapterIndex = previous
                     }
                     showTranslation = false
                 }
             }
-            .disabled(sceneIndex == 0 && chapterIndex == 1)
-            .opacity(sceneIndex == 0 && chapterIndex == 1 ? 0.35 : 1)
+            .disabled(!canGoBack)
+            .opacity(canGoBack ? 1 : 0.35)
 
             PrimaryButton(title: isLastScene ? L.t("story.finish") : L.t("story.next"),
                           icon: isLastScene ? "checkmark" : "chevron.right",
@@ -299,8 +317,13 @@ struct StoryReaderView: View {
         .background(.ultraThinMaterial)
     }
 
+    private var previousChapterIndex: Int? { story.chapterIndex(before: chapterIndex) }
+    private var nextChapterIndex: Int? { story.chapterIndex(after: chapterIndex) }
+
+    private var canGoBack: Bool { sceneIndex > 0 || previousChapterIndex != nil }
+
     private var isLastScene: Bool {
-        sceneIndex >= scenes.count - 1 && chapterIndex >= story.chapters.count
+        sceneIndex >= scenes.count - 1 && nextChapterIndex == nil
     }
 
     private func advance() {
@@ -308,8 +331,8 @@ struct StoryReaderView: View {
             if sceneIndex < scenes.count - 1 {
                 sceneIndex += 1
                 showTranslation = false
-            } else if chapterIndex < story.chapters.count {
-                chapterIndex += 1
+            } else if let next = nextChapterIndex {
+                chapterIndex = next
             } else {
                 finish()
             }

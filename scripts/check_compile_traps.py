@@ -207,6 +207,38 @@ def check(path):
     return problems
 
 
+def type_level_properties(path):
+    """Les noms de propriétés déclarées au niveau d'un type.
+
+    Une étiquette de tuple peut porter le même nom qu'une vraie propriété —
+    `index` est à la fois l'étiquette de `diacriticProfile` et une propriété de
+    `StoryChapter`. `\\.index` sur un tableau de chapitres est parfaitement
+    valide : sans cette liste, la règle 3 le signalerait à tort.
+
+    Seules comptent les propriétés de type : une variable locale nommée comme
+    l'étiquette (`if let mark = marks.first`) ne rend pas le chemin de clé
+    licite pour autant, et l'inclure éteindrait la règle sur la faute même
+    qu'elle cherche.
+    """
+    src = path.read_bytes()
+    tree = PARSER.parse(src)
+    names = set()
+
+    def visit(node):
+        if (node.type == "property_declaration"
+                and node.parent is not None
+                and node.parent.type in ("class_body", "protocol_body", "enum_class_body")):
+            for child in node.children:
+                if child.type == "pattern":
+                    names.add(text(child, src).strip())
+                    break
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+    return names
+
+
 def check_keypaths(path, labels):
     """RÈGLE 3, appliquée après avoir recensé tout le projet.
 
@@ -232,8 +264,11 @@ def main():
 
     # Premier passage : recenser toutes les étiquettes de tuple du projet.
     labels = set()
+    properties = set()
     for f in files:
         labels |= tuple_labels(strip_noise(f.read_text(encoding="utf-8", errors="replace")))
+        properties |= type_level_properties(f)
+    labels -= properties
 
     total = 0
     for f in files:

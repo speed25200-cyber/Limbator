@@ -219,6 +219,10 @@ struct TutorChatView: View {
 
         let placeholder = Message(text: "", isUser: false)
         messages.append(placeholder)
+        // La réponse se met à jour par identifiant, jamais « la dernière du
+        // fil » : rien ne garantit que la bulle en cours d'écriture soit encore
+        // la dernière quand la réponse arrive.
+        let replyId = placeholder.id
         streaming = true
 
         let native = progress.profile.nativeLanguage
@@ -231,26 +235,39 @@ struct TutorChatView: View {
                     question: question, native: native, level: level)
                 for try await chunk in stream {
                     accumulated += chunk
-                    await MainActor.run { updateLast(accumulated) }
+                    await MainActor.run { update(replyId, to: accumulated) }
                 }
             } catch {
-                await MainActor.run {
-                    updateLast(accumulated.isEmpty
+                // Un arrêt demandé par l'utilisateur n'est pas une panne. La
+                // première version affichait « indisponible : cancelled » en
+                // réponse à un appui sur « Stop ».
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        update(replyId, to: accumulated.isEmpty
                                ? L.t("tutor.unavailable", error.localizedDescription)
                                : accumulated)
+                    }
                 }
             }
+            let cancelled = Task.isCancelled
             await MainActor.run {
                 if accumulated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    updateLast(L.t("tutor.warming"))
+                    // Rien n'est venu : soit le modèle chauffe encore, soit
+                    // l'utilisateur a coupé avant le premier mot — auquel cas
+                    // la bulle vide n'a rien à dire et disparaît.
+                    if cancelled {
+                        messages.removeAll { $0.id == replyId }
+                    } else {
+                        update(replyId, to: L.t("tutor.warming"))
+                    }
                 }
                 streaming = false
             }
         }
     }
 
-    private func updateLast(_ text: String) {
-        guard let index = messages.indices.last else { return }
+    private func update(_ id: UUID, to text: String) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].text = text
     }
 

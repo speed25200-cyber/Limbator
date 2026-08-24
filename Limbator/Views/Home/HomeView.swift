@@ -237,11 +237,10 @@ struct HomeView: View {
                      colors: [Theme.lavande, Theme.rose]) {
                     AnyView(QuizGameView(kind: .homophoneDuel))
                 }
-                tile(icon: .sparkles, title: L.t("home.tile_tutor"),
-                     subtitle: L.t("home.tile_tutor_sub"),
-                     colors: [Theme.emeraude, Theme.azur]) {
-                    AnyView(TutorChatView())
-                }
+                actionTile(icon: .sparkles, title: L.t("home.tile_tutor"),
+                           subtitle: L.t("home.tile_tutor_sub"),
+                           colors: [Theme.emeraude, Theme.azur],
+                           action: { appState.presentedTutor = true })
                 tile(icon: .stories, title: L.t("home.tile_story"),
                      subtitle: L.t("home.tile_story_sub"),
                      colors: [Theme.or, Theme.grenat]) {
@@ -256,33 +255,52 @@ struct HomeView: View {
         NavigationLink {
             destination()
         } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                LimbIconView(icon: icon, size: 27,
-                             gradient: LinearGradient(colors: [.white], startPoint: .top, endPoint: .bottom),
-                             glow: .white)
-                    .padding(8)
-                    .background(Circle().fill(.white.opacity(0.18)))
-                Spacer(minLength: 0)
-                Text(title)
-                    .font(Theme.Typography.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1).minimumScaleFactor(0.75)
-                Text(subtitle)
-                    .font(Theme.Typography.caption)
-                    .foregroundStyle(.white.opacity(0.78))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .frame(height: 152)
-            .background(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.2), lineWidth: 1))
-            .shadow(color: (colors.first ?? Theme.bleuFrance).opacity(0.38), radius: 14, x: 0, y: 8)
+            tileLabel(icon: icon, title: title, subtitle: subtitle, colors: colors)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Même tuile, mais qui déclenche une action au lieu d'empiler une vue.
+    ///
+    /// Le tuteur en a besoin : il possède sa propre pile de navigation, et
+    /// l'empiler dans celle de l'accueil superposait deux barres de navigation
+    /// avec deux boutons de retour. Il s'ouvre donc en feuille, comme depuis
+    /// la barre d'onglets.
+    private func actionTile(icon: LimbIcon, title: String, subtitle: String,
+                            colors: [Color], action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            tileLabel(icon: icon, title: title, subtitle: subtitle, colors: colors)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tileLabel(icon: LimbIcon, title: String, subtitle: String,
+                           colors: [Color]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LimbIconView(icon: icon, size: 27,
+                         gradient: LinearGradient(colors: [.white], startPoint: .top, endPoint: .bottom),
+                         glow: .white)
+                .padding(8)
+                .background(Circle().fill(.white.opacity(0.18)))
+            Spacer(minLength: 0)
+            Text(title)
+                .font(Theme.Typography.headline)
+                .foregroundStyle(.white)
+                .lineLimit(1).minimumScaleFactor(0.75)
+            Text(subtitle)
+                .font(Theme.Typography.caption)
+                .foregroundStyle(.white.opacity(0.78))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .frame(height: 152)
+        .background(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .stroke(.white.opacity(0.2), lineWidth: 1))
+        .shadow(color: (colors.first ?? Theme.bleuFrance).opacity(0.38), radius: 14, x: 0, y: 8)
     }
 
     // =========================================================================

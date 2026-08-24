@@ -9,6 +9,9 @@ struct DictationPickerView: View {
     @EnvironmentObject var progress: ProgressTracker
     @EnvironmentObject var repetition: SpacedRepetition
 
+    /// Le niveau du profil n'est proposé qu'à la première apparition.
+    @State private var didApplyDefaultLevel = false
+
     @State private var selectedLevel: ProficiencyLevel?
 
     private var levels: [ProficiencyLevel] {
@@ -43,7 +46,12 @@ struct DictationPickerView: View {
         .navigationTitle(L.t("ortho.dictation"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if selectedLevel == nil { selectedLevel = progress.profile.level }
+            // Une seule fois. `nil` veut aussi dire « tous les niveaux » : sans
+            // ce drapeau, revenir d'une dictée effaçait ce choix et replaçait
+            // le filtre sur le niveau du profil.
+            guard !didApplyDefaultLevel else { return }
+            didApplyDefaultLevel = true
+            selectedLevel = progress.profile.level
         }
     }
 

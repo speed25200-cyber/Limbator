@@ -6,7 +6,7 @@ struct OnboardingView: View {
 
     @State private var step = 0
     @State private var name = ""
-    @State private var languageId = OnboardingView.suggestedLanguage()
+    @State private var languageId = UserProfile.deviceLanguageId
     @State private var level: ProficiencyLevel = .a1
     @State private var dailyGoal = 10
 
@@ -288,13 +288,6 @@ struct OnboardingView: View {
     // =========================================================================
     // MARK: - Outils
     // =========================================================================
-
-    /// La langue du téléphone si Limbator la connaît, le roumain sinon —
-    /// puisque c'est le public auquel l'app s'adresse d'abord.
-    private static func suggestedLanguage() -> String {
-        let code = Locale.current.language.languageCode?.identifier ?? "ro"
-        return NativeLanguage.all.contains(where: { $0.id == code }) ? code : "ro"
-    }
 
     private func header(_ title: String, _ subtitle: String) -> some View {
         VStack(spacing: 8) {

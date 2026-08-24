@@ -19,9 +19,21 @@ struct UserProfile: Codable {
     /// Compteur de fautes par catégorie — alimente le « profil de fautes ».
     var mistakeCounts: [String: Int]
 
-    static let empty = UserProfile(
+    /// La langue à proposer au tout premier lancement.
+    ///
+    /// Limbator s'adresse d'abord aux roumanophones, mais accueillir un
+    /// francophone dans une langue qu'il ne lit pas est un mauvais premier
+    /// écran — et c'est ce que faisait un identifiant figé à « ro ». On suit
+    /// donc le téléphone quand Limbator connaît sa langue ; l'utilisateur la
+    /// change ensuite en deux touches.
+    static var deviceLanguageId: String {
+        let code = Locale.current.language.languageCode?.identifier ?? "ro"
+        return NativeLanguage.all.contains(where: { $0.id == code }) ? code : "ro"
+    }
+
+    static var empty: UserProfile { UserProfile(
         name: "",
-        nativeLanguageId: "ro",
+        nativeLanguageId: deviceLanguageId,
         level: .a1,
         dailyGoalMinutes: 10,
         xp: 0,
@@ -34,7 +46,7 @@ struct UserProfile: Codable {
         dictationsDone: 0,
         dictationAverage: 0,
         mistakeCounts: [:]
-    )
+    ) }
 
     var nativeLanguage: NativeLanguage { NativeLanguage.byId(nativeLanguageId) }
 

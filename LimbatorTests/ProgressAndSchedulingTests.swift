@@ -153,6 +153,17 @@ final class ProgressAndSchedulingTests: XCTestCase {
         XCTAssertTrue(profile.mistakeCounts.isEmpty)
     }
 
+    func testFirstLaunchLanguageIsAlwaysOneWeSupport() {
+        // La langue du premier lancement suit le téléphone, mais jamais au
+        // point de proposer une langue que Limbator ne connaît pas — ni le
+        // français, qui n'est pas une langue de départ ici.
+        let suggested = UserProfile.deviceLanguageId
+        XCTAssertTrue(NativeLanguage.all.contains { $0.id == suggested },
+                      "langue de départ inconnue : \(suggested)")
+        XCTAssertNotEqual(suggested, "fr", "on n'apprend pas le français depuis le français")
+        XCTAssertEqual(UserProfile.empty.nativeLanguageId, suggested)
+    }
+
     func testUnknownLanguageFallsBackToRomanian() {
         var profile = UserProfile.empty
         profile.nativeLanguageId = "xx"
